@@ -297,13 +297,24 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # ── 7. Backup na nuvem em background ──────────────────────────────────────
+    # ── 7. Backup automático criptografado ────────────────────────────────────
+    try:
+        from utils.backup import fazer_backup_async
+        # Backup 30 segundos após iniciar
+        app.after(30000, lambda: fazer_backup_async())
+        # Backup a cada 4 horas
+        def _backup_periodico():
+            fazer_backup_async()
+            app.after(14400000, _backup_periodico)
+        app.after(14400000, _backup_periodico)
+    except Exception:
+        pass
+
+    # ── 8. Backup na nuvem em background ──────────────────────────────────────
     try:
         from utils.backup_nuvem import backup_nuvem_async, verificar_e_processar_fila
-        # Backup na nuvem 5 min após iniciar
         app.after(300000, lambda: backup_nuvem_async())
-        # Verificar fila NFe pendente
-        app.after(10000, lambda: verificar_e_processar_fila())
+        app.after(10000,  lambda: verificar_e_processar_fila())
     except Exception:
         pass
 

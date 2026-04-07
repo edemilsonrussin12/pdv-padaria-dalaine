@@ -59,18 +59,30 @@ class TelaConfiguracoes(ctk.CTkFrame):
         self.ent_balanca_porta=ctk.CTkEntry(sec4b,font=FONTE_LABEL,placeholder_text="Ex: COM1",fg_color=COR_CARD2,border_color=COR_BORDA2,text_color=COR_TEXTO); self.ent_balanca_porta.grid(row=0,column=1,sticky="ew",pady=6,padx=(12,0))
         ctk.CTkButton(sec4b,text="⚖️  Testar Balança",font=FONTE_BTN,fg_color="#6B7280",hover_color="#4B5563",text_color="white",command=self._testar_balanca).grid(row=1,column=0,columnspan=2,pady=4,sticky="w")
 
+        # Backup
+        sec_bk=self._secao(scroll,5,"💾  Backup e Restauração")
+        ctk.CTkLabel(sec_bk,text="Backup criptografado por hardware — só abre neste computador",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(anchor="w",pady=(0,8))
+        f_bk=ctk.CTkFrame(sec_bk,fg_color="transparent")
+        f_bk.pack(anchor="w")
+        ctk.CTkButton(f_bk,text="💾  Fazer Backup Agora",font=FONTE_BTN,
+            fg_color=COR_SUCESSO,hover_color=COR_SUCESSO2,text_color="white",
+            command=self._fazer_backup).pack(side="left",padx=(0,8))
+        ctk.CTkButton(f_bk,text="🔄  Restaurar Backup",font=FONTE_BTN,
+            fg_color="#6B7280",hover_color="#4B5563",text_color="white",
+            command=self._restaurar_backup).pack(side="left")
+
         # Usuários
-        sec_u=self._secao(scroll,5,"👤  Gerenciar Usuários")
+        sec_u=self._secao(scroll,6,"👤  Gerenciar Usuários")
         ctk.CTkLabel(sec_u,text="Cadastrar, editar e controlar acesso de usuários do sistema",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(anchor="w",pady=(0,8))
         ctk.CTkButton(sec_u,text="👤  Abrir Gerenciamento de Usuários",font=FONTE_BTN,fg_color="#374151",hover_color="#1F2937",text_color="white",command=self._abrir_usuarios).pack(anchor="w",pady=4)
 
         # Segurança
-        sec5=self._secao(scroll,6,"🔐  Segurança e Conformidade")
+        sec5=self._secao(scroll,7,"🔐  Segurança e Conformidade")
         ctk.CTkLabel(sec5,text="Verifique o status de segurança do sistema (PCI DSS / LGPD)",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(anchor="w",pady=(0,8))
         ctk.CTkButton(sec5,text="🔐  Abrir Painel de Segurança",font=FONTE_BTN,fg_color=COR_ACENTO,hover_color=COR_ACENTO2,text_color="white",command=self._abrir_seguranca).pack(anchor="w",pady=4)
 
         # Sobre
-        sec6=self._secao(scroll,7,"ℹ️  Sobre")
+        sec6=self._secao(scroll,8,"ℹ️  Sobre")
         ctk.CTkLabel(sec6,text="PDV Padaria Da Laine  v2.0\nPython + CustomTkinter + SQLite\nNFC-e via Focus NFe\nSegurança: PCI DSS + LGPD",font=FONTE_SMALL,text_color=COR_TEXTO_SUB,justify="left").pack(pady=8,anchor="w")
 
     def _secao(self,parent,row,titulo):
@@ -121,6 +133,57 @@ class TelaConfiguracoes(ctk.CTkFrame):
         for b in bks:
             ctk.CTkLabel(scroll,text=f'{b["data"]}  |  {b["nome"]}  |  {b["tamanho_kb"]:.1f} KB',font=FONTE_SMALL,text_color=COR_TEXTO,anchor="w").pack(fill="x",pady=1,padx=8)
         if not bks: ctk.CTkLabel(scroll,text="Nenhum backup.",font=FONTE_LABEL,text_color=COR_TEXTO_SUB).pack(pady=20)
+
+    def _fazer_backup(self):
+        from utils.backup import fazer_backup
+        from tkinter import messagebox
+        ok, msg = fazer_backup()
+        if ok:
+            messagebox.showinfo("Backup", f"✅ {msg}", parent=self)
+        else:
+            messagebox.showerror("Backup", f"❌ {msg}", parent=self)
+
+    def _restaurar_backup(self):
+        from utils.backup import listar_backups, restaurar_backup
+        from tkinter import messagebox
+        import os
+        backups = listar_backups()
+        if not backups:
+            messagebox.showwarning("Restaurar", "Nenhum backup encontrado.", parent=self)
+            return
+        # Mostrar lista de backups
+        import customtkinter as ctk
+        from tema import COR_CARD, COR_ACENTO, COR_ACENTO2, COR_FUNDO
+        win = ctk.CTkToplevel(self)
+        win.title("Restaurar Backup")
+        win.geometry("500x400")
+        win.configure(fg_color=COR_CARD)
+        win.grab_set()
+        ctk.CTkLabel(win, text="⚠️ Selecione o backup para restaurar",
+                     font=("Georgia",14,"bold"),
+                     text_color=COR_ACENTO).pack(pady=(20,8))
+        ctk.CTkLabel(win, text="ATENÇÃO: O banco atual será substituído!",
+                     font=("Courier New",11),
+                     text_color="#DC2626").pack(pady=(0,12))
+        scroll = ctk.CTkScrollableFrame(win, fg_color=COR_FUNDO)
+        scroll.pack(fill="both", expand=True, padx=16, pady=8)
+        from utils.backup import get_base_dir
+        base = get_base_dir()
+        for bk in backups:
+            ctk.CTkButton(scroll, text=bk,
+                         font=("Courier New",11),
+                         fg_color="transparent",
+                         hover_color="#FEF3C7",
+                         text_color="#1A1A2E",
+                         anchor="w",
+                         command=lambda b=bk: [
+                             messagebox.askyesno("Confirmar",
+                                 f"Restaurar {b}?\nO banco atual será substituído!",
+                                 parent=win) and [
+                                 restaurar_backup(
+                                     os.path.join(base,"backups",b)),
+                                 win.destroy()]
+                         ]).pack(fill="x", pady=2)
 
     def _abrir_usuarios(self):
         from telas.login import TelaUsuarios

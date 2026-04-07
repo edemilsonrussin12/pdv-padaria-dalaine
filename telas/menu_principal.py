@@ -23,6 +23,10 @@ class TelaMenuPrincipal(ctk.CTkFrame):
         centro = ctk.CTkFrame(self, fg_color="transparent", corner_radius=0)
         centro.place(relx=0.5, rely=0.5, anchor="center")
 
+        # Buscar mensagem do dia em background
+        self._frame_msg = None
+        self.after(2000, self._carregar_mensagem)
+
         # Topbar
         top = ctk.CTkFrame(self, fg_color=COR_ACENTO, corner_radius=0, height=50)
         top.place(relx=0, rely=0, relwidth=1)
@@ -58,9 +62,36 @@ class TelaMenuPrincipal(ctk.CTkFrame):
 
         try:
             from PIL import Image
-            img = ctk.CTkImage(Image.open(os.path.join(base, "logo.png")), size=(110,110))
-            ctk.CTkLabel(centro, image=img, text="").pack(pady=(0,8))
-        except Exception:
+            # Tentar vários caminhos para encontrar o logo.png
+            possiveis = [
+                os.path.join(base, "logo.png"),
+                os.path.join(os.path.dirname(base), "logo.png"),
+                os.path.join(os.getcwd(), "logo.png"),
+                "logo.png",
+            ]
+            # No EXE gerado pelo PyInstaller
+            if getattr(sys, "frozen", False):
+                import sys as _sys
+                possiveis.insert(0, os.path.join(
+                    os.path.dirname(_sys.executable), "logo.png"))
+                # PyInstaller extrai arquivos para _MEIPASS
+                if hasattr(_sys, "_MEIPASS"):
+                    possiveis.insert(0, os.path.join(_sys._MEIPASS, "logo.png"))
+
+            logo_path = None
+            for p in possiveis:
+                if os.path.exists(p):
+                    logo_path = p
+                    break
+
+            if logo_path:
+                img = ctk.CTkImage(Image.open(logo_path), size=(110,110))
+                self._logo_img = img  # manter referência
+                ctk.CTkLabel(centro, image=img, text="").pack(pady=(0,8))
+            else:
+                ctk.CTkLabel(centro, text="🥐", font=("Arial",52)).pack(pady=(0,8))
+        except Exception as e:
+            print(f"Logo erro: {e}")
             ctk.CTkLabel(centro, text="🥐", font=("Arial",52)).pack(pady=(0,8))
 
         nome_emp = get_config("empresa_nome") or "Padaria Da Laine"
@@ -153,6 +184,70 @@ class TelaMenuPrincipal(ctk.CTkFrame):
             lbl.place(relx=0.5, rely=0.54, anchor="center")
         except Exception as e:
             print(f"Marca dagua erro: {e}")
+
+    def _carregar_mensagem(self):
+        """Busca mensagem do dia no GitHub e exibe no menu"""
+        import threading, urllib.request, json, ssl
+        def _buscar():
+            try:
+                url = "https://raw.githubusercontent.com/edemilsonrussin12/pdv-padaria-dalaine/main/mensagem.json"
+                ctx = ssl.create_default_context()
+                req = urllib.request.Request(url,
+                    headers={"User-Agent":"PDV-PadariaLaine/2.0"})
+                with urllib.request.urlopen(req, timeout=5, context=ctx) as r:
+                    dados = json.loads(r.read().decode())
+                if dados.get("ativa"):
+                    self.after(0, lambda: self._exibir_mensagem(dados))
+            except Exception:
+                pass
+        threading.Thread(target=_buscar, daemon=True).start()
+
+    def _exibir_mensagem(self, dados):
+        """Exibe mensagem na tela inicial"""
+        try:
+            tipo  = dados.get("tipo", "info")
+            cores = {
+                "info":       ("#1D4ED8", "#EFF6FF"),
+                "verde":      ("#15803D", "#F0FDF4"),
+                "aviso":      ("#B45309", "#FFFBEB"),
+                "manutencao": ("#DC2626", "#FEF2F2"),
+            }
+            cor_txt, cor_bg = cores.get(tipo, cores["info"])
+
+            import customtkinter as ctk
+            if hasattr(self, "_frame_msg") and self._frame_msg:
+                try: self._frame_msg.destroy()
+                except: pass
+
+            # Posicionar acima dos ícones
+            self._frame_msg = ctk.CTkFrame(
+                self, fg_color=cor_bg,
+                corner_radius=12,
+                border_width=1,
+                border_color=cor_txt)
+            self._frame_msg.place(
+                relx=0.5, rely=0.42, anchor="center",
+                relwidth=0.5)
+
+            titulo = dados.get("titulo","")
+            texto  = dados.get("texto","")
+
+            if titulo:
+                ctk.CTkLabel(
+                    self._frame_msg,
+                    text=titulo,
+                    font=("Georgia",13,"bold"),
+                    text_color=cor_txt).pack(pady=(10,2))
+
+            if texto:
+                ctk.CTkLabel(
+                    self._frame_msg,
+                    text=texto,
+                    font=("Courier New",11),
+                    text_color=cor_txt,
+                    wraplength=500).pack(pady=(0,10))
+        except Exception as e:
+            print(f"Mensagem: {e}")
 
     def _alterar_senha(self):
         from telas.login import TelaAlterarSenha

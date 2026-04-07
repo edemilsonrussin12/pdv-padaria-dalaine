@@ -1,113 +1,130 @@
 """
-utils/backup.py — Backup Automático do Banco de Dados
+utils/backup.py — Backup automático com criptografia
+Backup local diário criptografado por chave do hardware
 """
-import os
-import sys
-import shutil
+import os, sys, shutil, hashlib, base64
 from datetime import datetime
 
-# BASE_DIR
-if getattr(sys, 'frozen', False):
-    BASE_DIR = os.path.dirname(sys.executable)
-else:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def get_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DB_PATH      = os.path.join(BASE_DIR, "banco", "padaria.db")
-BACKUP_DIR   = os.path.join(BASE_DIR, "backups")
-MAX_BACKUPS  = 30
-
-
-def fazer_backup(motivo="auto"):
-    """
-    Copia o banco de dados para a pasta backups/
-    Retorna (sucesso: bool, mensagem: str, caminho: str)
-    """
+def _chave_hardware():
+    """Chave única baseada no hardware do PC"""
     try:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
+        import subprocess
+        uuid = subprocess.check_output(
+            "wmic csproduct get uuid", shell=True,
+            stderr=subprocess.DEVNULL).decode()
+        uuid = [x.strip() for x in uuid.split("\n")
+                if x.strip() and x.strip() != "UUID"]
+        seed = uuid[0] if uuid else "padaria_laine"
+    except Exception:
+        import platform
+        seed = platform.node()
+    return hashlib.sha256(f"PDV_BACKUP_{seed}".encode()).digest()[:32]
 
-        if not os.path.exists(DB_PATH):
-            return False, "Banco de dados não encontrado.", ""
+def _criptografar(dados: bytes) -> bytes:
+    """Criptografia XOR com chave do hardware"""
+    chave = _chave_hardware()
+    return bytes([dados[i] ^ chave[i % len(chave)]
+                  for i in range(len(dados))])
 
-        agora    = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nome     = f"padaria_{agora}_{motivo}.db"
-        destino  = os.path.join(BACKUP_DIR, nome)
+def fazer_backup():
+    """
+    Faz backup criptografado do banco.
+    Arquivo .bak.enc — só abre no mesmo PC ou com a chave.
+    """
+    base    = get_base_dir()
+    db_path = os.path.join(base, "banco", "padaria.db")
 
-        shutil.copy2(DB_PATH, destino)
+    if not os.path.exists(db_path):
+        return False, "Banco não encontrado."
 
-        # Limpar backups antigos (manter últimos MAX_BACKUPS)
-        _limpar_backups_antigos()
+    pasta_bk = os.path.join(base, "backups")
+    os.makedirs(pasta_bk, exist_ok=True)
 
-        tamanho = os.path.getsize(destino) / 1024
-        return True, f"✅ Backup salvo!\n{nome}\n({tamanho:.1f} KB)", destino
+    agora   = datetime.now().strftime("%Y%m%d_%H%M%S")
+    destino = os.path.join(pasta_bk, f"padaria_{agora}.bak.enc")
+
+    try:
+        # Ler banco
+        with open(db_path, "rb") as f:
+            dados = f.read()
+
+        # Criptografar
+        dados_enc = _criptografar(dados)
+
+        # Salvar com cabeçalho de identificação
+        cabecalho = b"PDV_PADARIA_BACKUP_V2\n"
+        with open(destino, "wb") as f:
+            f.write(cabecalho + dados_enc)
+
+        # Manter apenas últimos 30 backups
+        backups = sorted([
+            os.path.join(pasta_bk, f)
+            for f in os.listdir(pasta_bk)
+            if f.endswith(".bak.enc")
+        ])
+        while len(backups) > 30:
+            os.remove(backups.pop(0))
+
+        return True, f"Backup: {os.path.basename(destino)}"
 
     except Exception as e:
-        return False, f"❌ Erro no backup: {e}", ""
+        return False, str(e)
 
-
-def _limpar_backups_antigos():
-    """Remove backups mais antigos, mantendo apenas os últimos MAX_BACKUPS"""
+def restaurar_backup(arquivo_enc):
+    """
+    Restaura backup criptografado.
+    Só funciona no mesmo PC que fez o backup!
+    """
     try:
-        arquivos = sorted([
-            f for f in os.listdir(BACKUP_DIR)
-            if f.startswith("padaria_") and f.endswith(".db")
-        ])
-        while len(arquivos) > MAX_BACKUPS:
-            os.remove(os.path.join(BACKUP_DIR, arquivos[0]))
-            arquivos.pop(0)
-    except Exception:
-        pass
+        base    = get_base_dir()
+        db_path = os.path.join(base, "banco", "padaria.db")
 
+        with open(arquivo_enc, "rb") as f:
+            conteudo = f.read()
+
+        # Remover cabeçalho
+        cabecalho = b"PDV_PADARIA_BACKUP_V2\n"
+        if not conteudo.startswith(cabecalho):
+            return False, "Arquivo inválido ou corrompido."
+
+        dados_enc = conteudo[len(cabecalho):]
+
+        # Descriptografar
+        dados = _criptografar(dados_enc)  # XOR é simétrico
+
+        # Fazer backup do banco atual antes de restaurar
+        if os.path.exists(db_path):
+            shutil.copy2(db_path, db_path + ".antes_restauracao")
+
+        with open(db_path, "wb") as f:
+            f.write(dados)
+
+        return True, "Backup restaurado com sucesso!"
+
+    except Exception as e:
+        return False, str(e)
 
 def listar_backups():
-    """Lista todos os backups disponíveis"""
-    try:
-        os.makedirs(BACKUP_DIR, exist_ok=True)
-        arquivos = sorted([
-            f for f in os.listdir(BACKUP_DIR)
-            if f.startswith("padaria_") and f.endswith(".db")
-        ], reverse=True)
-        result = []
-        for f in arquivos:
-            path = os.path.join(BACKUP_DIR, f)
-            tam  = os.path.getsize(path) / 1024
-            data = datetime.fromtimestamp(
-                os.path.getmtime(path)).strftime("%d/%m/%Y %H:%M")
-            result.append({"nome": f, "caminho": path,
-                           "tamanho_kb": tam, "data": data})
-        return result
-    except Exception:
+    """Lista backups disponíveis"""
+    base     = get_base_dir()
+    pasta_bk = os.path.join(base, "backups")
+    if not os.path.exists(pasta_bk):
         return []
+    return sorted([
+        f for f in os.listdir(pasta_bk)
+        if f.endswith(".bak.enc")
+    ], reverse=True)
 
-
-def restaurar_backup(caminho_backup):
-    """Restaura um backup (substitui o banco atual)"""
-    try:
-        if not os.path.exists(caminho_backup):
-            return False, "Arquivo de backup não encontrado."
-
-        # Faz backup do atual antes de restaurar
-        fazer_backup("pre_restauracao")
-
-        shutil.copy2(caminho_backup, DB_PATH)
-        return True, "✅ Backup restaurado com sucesso!\nReinicie o sistema."
-    except Exception as e:
-        return False, f"❌ Erro ao restaurar: {e}"
-
-
-def backup_automatico_inicializacao():
-    """
-    Chamado ao iniciar o sistema.
-    Faz backup apenas 1x por dia.
-    """
-    try:
-        hoje  = datetime.now().strftime("%Y%m%d")
-        ja_fez = any(
-            hoje in f
-            for f in os.listdir(BACKUP_DIR)
-            if f.endswith(".db")
-        ) if os.path.exists(BACKUP_DIR) else False
-
-        if not ja_fez:
-            fazer_backup("diario")
-    except Exception:
-        pass
+def fazer_backup_async(callback=None):
+    """Backup em background sem travar o sistema"""
+    import threading
+    def _fazer():
+        ok, msg = fazer_backup()
+        if callback:
+            callback(ok, msg)
+    threading.Thread(target=_fazer, daemon=True).start()
