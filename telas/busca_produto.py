@@ -132,24 +132,82 @@ class BuscaProdutoWidget:
         texto = self.entry.get().strip()
         if not texto:
             return "break"
+
         if 0 <= self.idx_sel < len(self.lista):
+            # Item selecionado via seta — produto existe, vai direto pra venda
             self._selecionar(self.lista[self.idx_sel])
         elif len(self.lista) == 1:
+            # Só um resultado — adiciona direto
             self._selecionar(self.lista[0])
         else:
             from banco.database import buscar_produto_por_codigo
             prod = buscar_produto_por_codigo(texto)
             if prod:
+                # Produto encontrado pelo código exato — adiciona na venda
                 self._selecionar(prod)
             elif self.lista:
+                # Tem resultados parciais mas nenhum exato — seleciona o primeiro
                 self._selecionar(self.lista[0])
+            else:
+                # Produto NÃO encontrado — abre formulário de cadastro
+                self._fechar()
+                self._abrir_cadastro(texto)
         return "break"
+
+    def _abrir_cadastro(self, codigo):
+        """Abre o formulário de cadastro de produto com o código já preenchido"""
+        try:
+            # Importa dentro da função para evitar import circular
+            from telas.produtos import FormularioProduto
+
+            # Callback: após salvar, tenta adicionar o produto recém-cadastrado na venda
+            def pos_cadastro():
+                from banco.database import buscar_produto_por_codigo
+                prod = buscar_produto_por_codigo(codigo)
+                if prod:
+                    self.entry.delete(0, "end")
+                    self.callback(prod)   # ← adiciona na venda automaticamente
+                else:
+                    # Código pode ter sido alterado no formulário — apenas limpa
+                    self.entry.delete(0, "end")
+                try:
+                    self.entry.focus_set()
+                except Exception:
+                    pass
+
+            root = self.entry.winfo_toplevel()
+            form = FormularioProduto(root, None, pos_cadastro)
+
+            # Pré-preenche o código de barras se parecer um código (só dígitos)
+            if codigo.isdigit():
+                form.ent_scan.delete(0, "end")
+                form.ent_scan.insert(0, codigo)
+                # Dispara a busca automaticamente para confirmar que não existe
+                form.after(200, form._on_scan)
+            else:
+                # Era uma busca por nome — apenas abre o formulário limpo
+                form.campos["nome"].delete(0, "end")
+                form.campos["nome"].insert(0, codigo)
+                form.campos["nome"].focus_set()
+
+        except Exception as e:
+            import tkinter.messagebox as mb
+            mb.showwarning(
+                "Produto não encontrado",
+                f"Produto '{codigo}' não cadastrado.\n\n"
+                f"Abra o módulo Estoque > Produtos para cadastrar.",
+                parent=self.entry.winfo_toplevel())
+            self.entry.delete(0, "end")
+            try:
+                self.entry.focus_set()
+            except Exception:
+                pass
 
     def _selecionar(self, produto):
         self._fechar()
         self.entry.delete(0, "end")
         self.entry.focus_set()
-        self.callback(produto)
+        self.callback(produto)   # ← produto existe: vai direto para a venda
 
     def _fechar(self):
         win = self.win

@@ -89,7 +89,8 @@ class TelaCaixa(ctk.CTkFrame):
                     self.lbl_vendedor.configure(
                         text=f"Operador: {user['nome']}")
                 win.destroy()
-                self.ent_busca.focus_set()
+                # Garante foco no leitor de código de barras após login
+                self.after(150, self._focar_busca)
             else:
                 lbl_erro.configure(text="❌ Usuário ou senha incorretos!")
                 ent_senha.delete(0, "end")
@@ -238,14 +239,35 @@ class TelaCaixa(ctk.CTkFrame):
         self.lbl_vendedor.grid(row=0,column=1,sticky="w",padx=8)
         ctk.CTkLabel(rod,text="F2=Clientes  F3=Produtos  F6=Vendedor  F9=Receber  ESC=Cancelar",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).grid(row=0,column=2,sticky="e",padx=16)
 
+    def _focar_busca(self):
+        """Retorna foco ao campo de busca — essencial para o leitor de código de barras"""
+        try:
+            self.ent_busca.focus_set()
+            self.ent_busca.select_range(0, "end")
+        except Exception:
+            pass
+
+    def _checar_foco(self):
+        """Se não tiver janela filha aberta, devolve foco ao campo de busca (leitor)"""
+        try:
+            toplevels = [w for w in self.winfo_toplevel().winfo_children()
+                         if isinstance(w, ctk.CTkToplevel) and w.winfo_exists()]
+            if not toplevels:
+                campos_excluidos = []
+                if hasattr(self, "ent_qtde"): campos_excluidos.append(self.ent_qtde)
+                if hasattr(self, "ent_peso"): campos_excluidos.append(self.ent_peso)
+                if self.focus_get() not in campos_excluidos:
+                    self.ent_busca.focus_set()
+        except Exception:
+            pass
+
     def _bind_teclas(self):
-        root=self.winfo_toplevel()
-        root.bind("<F2>",lambda e:self._abrir_clientes())
-        root.bind("<F3>",lambda e:self._abrir_pesquisa())
-        root.bind("<F6>",lambda e:self._trocar_vendedor())
-        root.bind("<F9>",lambda e:self._receber())
+        root = self.winfo_toplevel()
+        root.bind("<F2>", lambda e: self._abrir_clientes())
+        root.bind("<F3>", lambda e: self._abrir_pesquisa())
+        root.bind("<F6>", lambda e: self._trocar_vendedor())
+        root.bind("<F9>", lambda e: self._receber())
         def _esc_seguro(e):
-            # Só limpa venda se o PDV estiver em foco
             try:
                 widget = self.focus_get()
                 if widget and str(self) in str(widget):
@@ -253,7 +275,8 @@ class TelaCaixa(ctk.CTkFrame):
             except Exception:
                 pass
         root.bind("<Escape>", _esc_seguro)
-        # Fechar dropdown ao trocar de tela
+        # Retorna foco ao leitor após fechar qualquer janela filha
+        root.bind("<FocusIn>", lambda e: self.after(80, self._checar_foco))
         self.bind("<Destroy>", lambda e: self._fechar_busca())
         self.ent_busca.focus_set()
 
@@ -376,16 +399,54 @@ class TelaCaixa(ctk.CTkFrame):
         for v in vendedores:
             ctk.CTkButton(scroll,text=v["nome"],font=FONTE_LABEL,fg_color="transparent",hover_color=COR_ACENTO_LIGHT,text_color=COR_TEXTO,height=38,command=lambda n=v["nome"]:[setattr(self,"vendedor_atual",n),self.lbl_vendedor.configure(text=f"Vendedor: {n}"),win.destroy()]).pack(fill="x",pady=2)
 
-    def _buscar_produto(self,event=None):
-        codigo=self.ent_busca.get().strip()
+    def _buscar_produto(self, event=None):
+        codigo = self.ent_busca.get().strip()
         if not codigo: return
-        prod=buscar_produto_por_codigo(codigo)
-        if prod: self._adicionar_item(prod); self.ent_busca.delete(0,"end")
+
+        prod = buscar_produto_por_codigo(codigo)
+        if prod:
+            # ✅ Produto existe — adiciona na venda direto
+            self._adicionar_item(prod)
+            self.ent_busca.delete(0, "end")
+            self.after(50, self._focar_busca)
         else:
-            lista=listar_produtos(codigo)
-            if len(lista)==1: self._adicionar_item(lista[0]); self.ent_busca.delete(0,"end")
-            elif len(lista)>1: self._abrir_pesquisa(lista)
-            else: messagebox.showwarning("Não encontrado",f"Nenhum produto: {codigo}")
+            lista = listar_produtos(codigo)
+            if len(lista) == 1:
+                # ✅ Um resultado — adiciona direto
+                self._adicionar_item(lista[0])
+                self.ent_busca.delete(0, "end")
+                self.after(50, self._focar_busca)
+            elif len(lista) > 1:
+                # Múltiplos — abre pesquisa
+                self._abrir_pesquisa(lista)
+            else:
+                # ❌ Não existe — abre formulário de cadastro
+                self._abrir_cadastro_produto(codigo)
+
+    def _abrir_cadastro_produto(self, codigo):
+        """Abre formulário de cadastro quando produto não está no sistema"""
+        from telas.produtos import FormularioProduto
+
+        def pos_cadastro():
+            # Após salvar, tenta adicionar o produto novo na venda automaticamente
+            prod = buscar_produto_por_codigo(codigo)
+            if prod:
+                self._adicionar_item(prod)
+            self.ent_busca.delete(0, "end")
+            self.after(50, self._focar_busca)
+
+        form = FormularioProduto(self.winfo_toplevel(), None, pos_cadastro)
+
+        # Se for código de barras (só números) — pré-preenche e confirma
+        if codigo.isdigit():
+            form.ent_scan.delete(0, "end")
+            form.ent_scan.insert(0, codigo)
+            form.after(200, form._on_scan)
+        else:
+            # Era busca por nome — preenche campo nome
+            form.campos["nome"].delete(0, "end")
+            form.campos["nome"].insert(0, codigo)
+            form.campos["nome"].focus_set()
 
     def _abrir_pesquisa(self, lista_pre=None):
         win = ctk.CTkToplevel(self)
