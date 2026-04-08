@@ -1,6 +1,6 @@
 {
-    "versao": "2.0.0",
-    "data": "2026-04-06",
-    "notas": "Versao inicial do PDV Padaria Da Laine",
+    "versao": "2.1.0",
+    "data": "2026-04-08",
+    "notas": "Correcao leitor codigo barras e cadastro de produtos",
     "obrigatorio": false
 }
