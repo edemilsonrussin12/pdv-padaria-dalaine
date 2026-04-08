@@ -218,7 +218,54 @@ class TelaCaixa(ctk.CTkFrame):
 
         ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=4)
 
-        f_rod = ctk.CTkFrame(painel, fg_color="transparent")
+        # ── Produto Avulso (salgados, pães, etc sem código) ──
+        ctk.CTkLabel(painel, text="🏷️ PRODUTO AVULSO",
+                     font=("Courier New",9,"bold"),
+                     text_color=COR_ACENTO).pack(pady=(4,2))
+
+        f_av = ctk.CTkFrame(painel, fg_color=COR_CARD2, corner_radius=8)
+        f_av.pack(fill="x", padx=16, pady=(0,4))
+
+        self.ent_av_desc = ctk.CTkEntry(
+            f_av, placeholder_text="Descrição (ex: Salgado)",
+            font=FONTE_SMALL, height=30,
+            fg_color=COR_CARD, border_color=COR_BORDA2,
+            text_color=COR_TEXTO)
+        self.ent_av_desc.pack(fill="x", padx=8, pady=(6,2))
+
+        f_av2 = ctk.CTkFrame(f_av, fg_color="transparent")
+        f_av2.pack(fill="x", padx=8, pady=(2,6))
+        f_av2.columnconfigure(0, weight=2)
+        f_av2.columnconfigure(1, weight=1)
+        f_av2.columnconfigure(2, weight=1)
+
+        self.ent_av_valor = ctk.CTkEntry(
+            f_av2, placeholder_text="R$ Valor",
+            font=FONTE_SMALL, height=30,
+            fg_color=COR_CARD, border_color=COR_BORDA2,
+            text_color=COR_TEXTO)
+        self.ent_av_valor.grid(row=0, column=0, padx=(0,4), sticky="ew")
+
+        self.ent_av_qtde = ctk.CTkEntry(
+            f_av2, placeholder_text="Qtd",
+            font=FONTE_SMALL, height=30, width=50,
+            fg_color=COR_CARD, border_color=COR_BORDA2,
+            text_color=COR_TEXTO)
+        self.ent_av_qtde.insert(0, "1")
+        self.ent_av_qtde.grid(row=0, column=1, padx=(0,4), sticky="ew")
+
+        ctk.CTkButton(
+            f_av2, text="➕",
+            font=FONTE_BTN, height=30, width=36,
+            fg_color=COR_ACENTO, hover_color=COR_ACENTO2,
+            text_color="white", corner_radius=6,
+            command=self._adicionar_avulso
+        ).grid(row=0, column=2, sticky="ew")
+
+        # Enter no valor já adiciona
+        self.ent_av_valor.bind("<Return>", lambda e: self._adicionar_avulso())
+
+        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=4)
         f_rod.pack(fill="x", padx=16, pady=2)
         f_rod.grid_columnconfigure((0,1), weight=1)
         ctk.CTkButton(f_rod,text="💵 Sangria",font=FONTE_BTN_SM,
@@ -422,6 +469,50 @@ class TelaCaixa(ctk.CTkFrame):
             else:
                 # ❌ Não existe — abre formulário de cadastro
                 self._abrir_cadastro_produto(codigo)
+
+    def _adicionar_avulso(self):
+        """Adiciona produto avulso sem código de barras na venda"""
+        desc  = self.ent_av_desc.get().strip() or "Produto Avulso"
+        valor_raw = self.ent_av_valor.get().strip().replace(",",".")
+        qtde_raw  = self.ent_av_qtde.get().strip().replace(",",".")
+
+        try:
+            valor = float(valor_raw)
+            if valor <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("Valor inválido",
+                                   "Informe um valor maior que zero!",
+                                   parent=self)
+            self.ent_av_valor.focus_set()
+            return
+
+        try:
+            qtde = float(qtde_raw) if qtde_raw else 1.0
+            if qtde <= 0:
+                qtde = 1.0
+        except ValueError:
+            qtde = 1.0
+
+        item = {
+            "produto_id":    None,
+            "nome_produto":  desc,
+            "codigo_barras": "AVULSO",
+            "quantidade":    qtde,
+            "preco_unitario": valor,
+            "desconto":      0.0,
+            "total_item":    round(valor * qtde, 2),
+            "peso":          0.0,
+        }
+        self.itens.append(item)
+        self._redesenhar_itens()
+
+        # Limpa campos e volta foco para descrição
+        self.ent_av_desc.delete(0, "end")
+        self.ent_av_valor.delete(0, "end")
+        self.ent_av_qtde.delete(0, "end")
+        self.ent_av_qtde.insert(0, "1")
+        self.ent_av_desc.focus_set()
 
     def _abrir_cadastro_produto(self, codigo):
         """Abre formulário de cadastro quando produto não está no sistema"""
