@@ -1,6 +1,6 @@
 {
-    "versao": "2.1.1",
+    "versao": "2.1.2",
     "data": "2026-04-08",
-    "notas": "Correcao senha bloqueio por inatividade",
+    "notas": "Correcao sistema de atualizacao automatica",
     "obrigatorio": false
 }

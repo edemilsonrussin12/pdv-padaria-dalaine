@@ -7,10 +7,20 @@ from datetime import datetime
 
 GITHUB_USUARIO  = "edemilsonrussin12"
 GITHUB_REPO     = "pdv-padaria-dalaine"
-VERSAO_ATUAL    = "2.0.0"
 
 URL_VERSAO = f"https://raw.githubusercontent.com/{GITHUB_USUARIO}/{GITHUB_REPO}/main/versao.json"
 URL_ZIP    = f"https://github.com/{GITHUB_USUARIO}/{GITHUB_REPO}/archive/refs/heads/main.zip"
+
+def get_versao_atual():
+    """Lê a versão instalada do versao.json local — nunca fica travada"""
+    try:
+        base = get_base_dir()
+        path = os.path.join(base, "versao.json")
+        with open(path, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+        return dados.get("versao", "0.0.0")
+    except Exception:
+        return "0.0.0"
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
@@ -60,7 +70,7 @@ def baixar_e_instalar():
 
         os.remove(zip_path)
 
-        # Salvar versão instalada
+        # Salvar versão instalada no versao.json local
         ver_path = os.path.join(base, "versao_instalada.txt")
         with open(ver_path, "w") as f:
             f.write(datetime.now().strftime("%Y-%m-%d %H:%M"))
@@ -78,9 +88,13 @@ def verificar_atualizacao_async(callback=None):
     def _verificar():
         try:
             versao_nova, notas, obrigatorio = verificar_versao_online()
+            versao_atual = get_versao_atual()
 
-            if not versao_nova or versao_nova == VERSAO_ATUAL:
-                return  # Sem atualização — continua normalmente
+            print(f"[PDV] Versão local: {versao_atual} | GitHub: {versao_nova}")
+
+            if not versao_nova or versao_nova == versao_atual:
+                print(f"[PDV] Sistema atualizado. Nenhuma ação necessária.")
+                return
 
             # TEM ATUALIZAÇÃO — instala silenciosamente em background
             print(f"[PDV] Atualização {versao_nova} disponível. Instalando...")
