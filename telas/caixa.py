@@ -245,6 +245,7 @@ class TelaCaixa(ctk.CTkFrame):
             fg_color=COR_CARD, border_color=COR_BORDA2,
             text_color=COR_TEXTO)
         self.ent_av_valor.grid(row=0, column=0, padx=(0,4), sticky="ew")
+        self.ent_av_valor.bind("<Return>", lambda e: self._adicionar_avulso())
 
         self.ent_av_qtde = ctk.CTkEntry(
             f_av2, placeholder_text="Qtd",
@@ -262,10 +263,9 @@ class TelaCaixa(ctk.CTkFrame):
             command=self._adicionar_avulso
         ).grid(row=0, column=2, sticky="ew")
 
-        # Enter no valor já adiciona
-        self.ent_av_valor.bind("<Return>", lambda e: self._adicionar_avulso())
-
         ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=4)
+
+        f_rod = ctk.CTkFrame(painel, fg_color="transparent")
         f_rod.pack(fill="x", padx=16, pady=2)
         f_rod.grid_columnconfigure((0,1), weight=1)
         ctk.CTkButton(f_rod,text="💵 Sangria",font=FONTE_BTN_SM,
@@ -322,8 +322,7 @@ class TelaCaixa(ctk.CTkFrame):
             except Exception:
                 pass
         root.bind("<Escape>", _esc_seguro)
-        # Retorna foco ao leitor após fechar qualquer janela filha
-        root.bind("<FocusIn>", lambda e: self.after(80, self._checar_foco))
+        # FocusIn removido — causava piscar na tela de login
         self.bind("<Destroy>", lambda e: self._fechar_busca())
         self.ent_busca.focus_set()
 
@@ -472,42 +471,34 @@ class TelaCaixa(ctk.CTkFrame):
 
     def _adicionar_avulso(self):
         """Adiciona produto avulso sem código de barras na venda"""
-        desc  = self.ent_av_desc.get().strip() or "Produto Avulso"
-        valor_raw = self.ent_av_valor.get().strip().replace(",",".")
-        qtde_raw  = self.ent_av_qtde.get().strip().replace(",",".")
-
+        desc      = self.ent_av_desc.get().strip() or "Produto Avulso"
+        valor_raw = self.ent_av_valor.get().strip().replace(",", ".")
+        qtde_raw  = self.ent_av_qtde.get().strip().replace(",", ".")
         try:
             valor = float(valor_raw)
-            if valor <= 0:
-                raise ValueError
+            if valor <= 0: raise ValueError
         except ValueError:
-            messagebox.showwarning("Valor inválido",
-                                   "Informe um valor maior que zero!",
-                                   parent=self)
+            messagebox.showwarning("Valor inválido", "Informe um valor maior que zero!", parent=self)
             self.ent_av_valor.focus_set()
             return
-
         try:
             qtde = float(qtde_raw) if qtde_raw else 1.0
-            if qtde <= 0:
-                qtde = 1.0
+            if qtde <= 0: qtde = 1.0
         except ValueError:
             qtde = 1.0
 
-        item = {
+        self.itens.append({
             "produto_id":    None,
             "nome_produto":  desc,
             "codigo_barras": "AVULSO",
+            "unidade":       "UN",
             "quantidade":    qtde,
+            "peso":          0.0,
             "preco_unitario": valor,
             "desconto":      0.0,
             "total_item":    round(valor * qtde, 2),
-            "peso":          0.0,
-        }
-        self.itens.append(item)
+        })
         self._redesenhar_itens()
-
-        # Limpa campos e volta foco para descrição
         self.ent_av_desc.delete(0, "end")
         self.ent_av_valor.delete(0, "end")
         self.ent_av_qtde.delete(0, "end")
