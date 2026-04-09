@@ -1,9 +1,9 @@
 @echo off
-title Gerando icone e EXE - PDV Padaria Da Laine v2.0
+title Gerando EXE - PDV Padaria Da Laine v2.1.3
 color 0A
 echo.
 echo ================================================
-echo   PDV Padaria Da Laine v2.0
+echo   PDV Padaria Da Laine v2.1.3
 echo   Gerando executavel final...
 echo ================================================
 echo.
@@ -31,7 +31,7 @@ if exist build rmdir /s /q build
 if exist PDV_Padaria_DaLaine.spec del /q PDV_Padaria_DaLaine.spec
 if exist logo.ico del /q logo.ico
 
-:: Criar logo.ico com script Python dedicado
+:: Criar logo.ico
 echo.
 echo [4/5] Gerando icone...
 python gerar_icone.py
@@ -39,19 +39,21 @@ if not exist logo.ico (
     echo Aviso: icone nao gerado, continuando sem icone...
 )
 
-:: Gerar EXE
+:: Gerar EXE — ONEDIR para atualização automática funcionar!
 echo.
 echo [5/5] Gerando EXE (aguarde 5-10 minutos)...
 echo.
 
 if exist logo.ico (
     python -m PyInstaller ^
-        --onefile ^
+        --onedir ^
         --windowed ^
         --name "PDV_Padaria_DaLaine" ^
         --icon "logo.ico" ^
         --add-data "logo.png;." ^
+        --add-data "logo.ico;." ^
         --add-data "tema.py;." ^
+        --add-data "versao.json;." ^
         --add-data "banco;banco" ^
         --add-data "telas;telas" ^
         --add-data "utils;utils" ^
@@ -74,11 +76,12 @@ if exist logo.ico (
         main.py
 ) else (
     python -m PyInstaller ^
-        --onefile ^
+        --onedir ^
         --windowed ^
         --name "PDV_Padaria_DaLaine" ^
         --add-data "logo.png;." ^
         --add-data "tema.py;." ^
+        --add-data "versao.json;." ^
         --add-data "banco;banco" ^
         --add-data "telas;telas" ^
         --add-data "utils;utils" ^
@@ -99,18 +102,22 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: Copiar arquivos
-if exist licenca.key copy /y licenca.key dist\licenca.key >nul
-if exist logo.ico copy /y logo.ico dist\logo.ico >nul
+:: Copiar licenca e logo para dist
+if exist licenca.key copy /y licenca.key dist\PDV_Padaria_DaLaine\licenca.key >nul
+if exist logo.png    copy /y logo.png    dist\PDV_Padaria_DaLaine\logo.png    >nul
+if exist logo.ico    copy /y logo.ico    dist\PDV_Padaria_DaLaine\logo.ico    >nul
 
 echo.
 echo ================================================
 echo   EXE GERADO COM SUCESSO!
 echo ================================================
-echo   Arquivo: dist\PDV_Padaria_DaLaine.exe
-echo   Licenca: dist\licenca.key
+echo   Pasta: dist\PDV_Padaria_DaLaine\
+echo   EXE:   dist\PDV_Padaria_DaLaine\PDV_Padaria_DaLaine.exe
+echo.
+echo   IMPORTANTE: Copie a PASTA INTEIRA para a padaria
+echo   Nao copie so o .exe!
 echo ================================================
 echo.
 set /p abrir="Abrir pasta dist\? (S/N): "
-if /i "%abrir%"=="S" explorer dist\
+if /i "%abrir%"=="S" explorer dist\PDV_Padaria_DaLaine
 pause
