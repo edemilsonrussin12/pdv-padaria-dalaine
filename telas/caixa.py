@@ -169,9 +169,11 @@ class TelaCaixa(ctk.CTkFrame):
     def _redesenhar_itens(self):
         for w in self.scroll_itens.winfo_children(): w.destroy()
         if not self.itens: self._linha_vazia(); self._atualizar_totais(); return
+        self._item_selecionado = getattr(self, "_item_selecionado", None)
         pesos=[1,6,3,2,2,2,2,2,1]
         for idx,item in enumerate(self.itens):
-            cor_bg=COR_LINHA_PAR if idx%2==0 else COR_CARD
+            selecionado = (self._item_selecionado == idx)
+            cor_bg = "#D1E8FF" if selecionado else (COR_LINHA_PAR if idx%2==0 else COR_CARD)
             row_f=ctk.CTkFrame(self.scroll_itens,fg_color=cor_bg,corner_radius=6,height=52)
             row_f.grid(row=idx,column=0,sticky="ew",pady=1); row_f.grid_propagate(False)
             for i,p in enumerate(pesos): row_f.grid_columnconfigure(i,weight=p)
@@ -182,10 +184,38 @@ class TelaCaixa(ctk.CTkFrame):
                    f'R$ {item["total_item"]:.2f}']
             cores=[COR_TEXTO_SUB,COR_TEXTO,COR_TEXTO_SUB,COR_ACENTO,COR_TEXTO_SUB,COR_TEXTO,COR_PERIGO,COR_SUCESSO]
             for i,(val,cor) in enumerate(zip(dados,cores)):
-                ctk.CTkLabel(row_f,text=val,font=("Courier New",13,"bold"),text_color=cor).grid(row=0,column=i,padx=6,sticky="w")
+                lbl = ctk.CTkLabel(row_f,text=val,font=("Courier New",13,"bold"),text_color=cor)
+                lbl.grid(row=0,column=i,padx=6,sticky="w")
+                lbl.bind("<Button-1>", lambda e, i=idx: self._selecionar_item(i))
+            row_f.bind("<Button-1>", lambda e, i=idx: self._selecionar_item(i))
             i_cap=idx
             ctk.CTkButton(row_f,text="✕",width=28,height=24,font=("Arial",10),fg_color=COR_PERIGO,hover_color=COR_PERIGO2,text_color="white",corner_radius=4,command=lambda i=i_cap:self._remover_item(i)).grid(row=0,column=8,padx=4)
         self._atualizar_totais()
+
+    def _selecionar_item(self, idx):
+        """Seleciona item na lista — DEL para remover"""
+        self._item_selecionado = idx
+        self._redesenhar_itens()
+        # Garante que DEL funciona na janela principal
+        self.winfo_toplevel().bind("<Delete>", self._del_item_selecionado)
+        self.winfo_toplevel().bind("<BackSpace>", self._del_item_selecionado)
+
+    def _del_item_selecionado(self, event=None):
+        """Remove o item selecionado ao pressionar DEL"""
+        idx = getattr(self, "_item_selecionado", None)
+        if idx is None or idx >= len(self.itens):
+            return
+        item = self.itens[idx]
+        if messagebox.askyesno(
+            "Cancelar Item",
+            f"Cancelar item #{idx+1}?\n\n"
+            f"{item['nome_produto']}\n"
+            f"R$ {item['total_item']:.2f}",
+            parent=self
+        ):
+            self.itens.pop(idx)
+            self._item_selecionado = None
+            self._redesenhar_itens()
 
     def _build_painel_direito(self):
         painel=ctk.CTkFrame(self,fg_color=COR_CARD,corner_radius=12,border_width=1,border_color=COR_BORDA)
@@ -449,25 +479,125 @@ class TelaCaixa(ctk.CTkFrame):
         codigo = self.ent_busca.get().strip()
         if not codigo: return
 
+        # ── 1. Detectar código de BALANÇA (EAN-13 começando com 2) ──
+        if len(codigo) == 13 and codigo.startswith("2") and codigo.isdigit():
+            resultado = self._processar_codigo_balanca(codigo)
+            if resultado:
+                self.ent_busca.delete(0, "end")
+                self.after(50, self._focar_busca)
+                return
+
+        # ── 3. Produto normal ──
         prod = buscar_produto_por_codigo(codigo)
         if prod:
-            # ✅ Produto existe — adiciona na venda direto
             self._adicionar_item(prod)
             self.ent_busca.delete(0, "end")
             self.after(50, self._focar_busca)
         else:
             lista = listar_produtos(codigo)
             if len(lista) == 1:
-                # ✅ Um resultado — adiciona direto
                 self._adicionar_item(lista[0])
                 self.ent_busca.delete(0, "end")
                 self.after(50, self._focar_busca)
             elif len(lista) > 1:
-                # Múltiplos — abre pesquisa
                 self._abrir_pesquisa(lista)
             else:
-                # ❌ Não existe — abre formulário de cadastro
                 self._abrir_cadastro_produto(codigo)
+
+    def _processar_codigo_balanca(self, codigo):
+        """
+        Processa código EAN-13 da balança Toledo Prix 4.
+        Formato da etiqueta: 2 PPPPP XX VVVV D
+          [0]    = 2 (produto pesado)
+          [1-5]  = código PLU do produto (5 dígitos)
+          [6-7]  = separador (geralmente 00)
+          [8-11] = valor total em centavos (4 dígitos)
+          [12]   = dígito verificador
+        Exemplo: 2 00003 00 0642 7
+          PLU=00003, Valor=R$6,42
+        """
+        try:
+            # Extrai código PLU do produto (posições 1-5)
+            cod_plu     = codigo[1:6]          # ex: "00003"
+            cod_limpo   = cod_plu.lstrip("0") or "0"  # ex: "3"
+
+            # Extrai valor total em centavos (posições 8-11)
+            valor_cents = int(codigo[8:12])
+            valor_total = valor_cents / 100     # ex: 642 → R$ 6,42
+
+            if valor_total <= 0:
+                return False
+
+            # Busca produto — tenta de várias formas
+            prod = None
+
+            # 1. Pelo código PLU com zeros (ex: "00003")
+            prod = buscar_produto_por_codigo(cod_plu)
+
+            # 2. Pelo PLU sem zeros (ex: "3")
+            if not prod:
+                prod = buscar_produto_por_codigo(cod_limpo)
+
+            # 3. Por busca parcial
+            if not prod:
+                from banco.database import listar_produtos
+                lista = listar_produtos(cod_limpo)
+                prod  = lista[0] if len(lista) == 1 else None
+
+            if not prod:
+                messagebox.showwarning(
+                    "⚖️ Balança Toledo Prix 4",
+                    f"Código de balança detectado!\n\n"
+                    f"PLU do produto: {cod_plu}\n"
+                    f"Valor: R$ {valor_total:.2f}\n\n"
+                    f"Produto não encontrado no sistema.\n"
+                    f"Cadastre o produto com código: {cod_plu}",
+                    parent=self)
+                return True
+
+            # Calcula quantidade baseado no valor e preço
+            if prod["preco_venda"] > 0:
+                peso_kg = round(valor_total / prod["preco_venda"], 3)
+            else:
+                peso_kg = 1.0
+
+            # Adiciona na venda com valor já calculado pela balança
+            self.itens.append({
+                "produto_id":     prod["id"],
+                "nome_produto":   f"{prod['nome']} ({peso_kg:.3f}kg)",
+                "codigo_barras":  codigo,
+                "unidade":        "KG",
+                "quantidade":     peso_kg,
+                "peso":           peso_kg,
+                "preco_unitario": prod["preco_venda"],
+                "desconto":       0.0,
+                "total_item":     valor_total,  # usa o valor da balança direto!
+            })
+            self._redesenhar_itens()
+            return True
+
+        except Exception as e:
+            print(f"[Toledo Prix 4] Erro: {e}")
+            return False
+
+    def _cancelar_item_por_numero(self, numero):
+        """Cancela item pelo número na lista (ex: digitar C2 cancela item 2)"""
+        idx = numero - 1
+        if 0 <= idx < len(self.itens):
+            item = self.itens[idx]
+            if messagebox.askyesno(
+                "Cancelar Item",
+                f"Cancelar item #{numero}?\n\n{item['nome_produto']}\n"
+                f"R$ {item['total_item']:.2f}",
+                parent=self
+            ):
+                self.itens.pop(idx)
+                self._redesenhar_itens()
+        else:
+            messagebox.showwarning(
+                "Item não encontrado",
+                f"Item #{numero} não existe na venda atual.",
+                parent=self)
 
     def _adicionar_avulso(self):
         """Adiciona produto avulso sem código de barras na venda"""
@@ -648,7 +778,12 @@ class TelaCaixa(ctk.CTkFrame):
         try: p=float(self.ent_peso.get().replace(",",".")); return p if p>0 else 0.0
         except: return 0.0
 
-    def _adicionar_item(self,prod):
+    def _adicionar_item(self, prod):
+        # ── Trata sinal de balança vindo do BuscaProdutoWidget ──
+        if isinstance(prod, dict) and prod.get("_balanca"):
+            self._processar_codigo_balanca(prod["_codigo"])
+            return
+
         qtde=self._get_qtde(); peso=self._get_peso()
         if prod["unidade"] in("KG","G","L","ML") and peso>0: qtde=peso
         for item in self.itens:

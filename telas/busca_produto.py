@@ -133,23 +133,25 @@ class BuscaProdutoWidget:
         if not texto:
             return "break"
 
+        # ── Código de balança EAN-13 começando com 2 ──
+        if len(texto) == 13 and texto.startswith("2") and texto.isdigit():
+            self._fechar()
+            self.entry.delete(0, "end")
+            self.callback({"_balanca": True, "_codigo": texto})
+            return "break"
+
         if 0 <= self.idx_sel < len(self.lista):
-            # Item selecionado via seta — produto existe, vai direto pra venda
             self._selecionar(self.lista[self.idx_sel])
         elif len(self.lista) == 1:
-            # Só um resultado — adiciona direto
             self._selecionar(self.lista[0])
         else:
             from banco.database import buscar_produto_por_codigo
             prod = buscar_produto_por_codigo(texto)
             if prod:
-                # Produto encontrado pelo código exato — adiciona na venda
                 self._selecionar(prod)
             elif self.lista:
-                # Tem resultados parciais mas nenhum exato — seleciona o primeiro
                 self._selecionar(self.lista[0])
             else:
-                # Produto NÃO encontrado — abre formulário de cadastro
                 self._fechar()
                 self._abrir_cadastro(texto)
         return "break"

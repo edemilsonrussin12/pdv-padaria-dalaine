@@ -43,14 +43,30 @@ def get_resumo_caixa(caixa_id):
     except Exception:
         sangria = 0; suprimento = 0
 
+    # Produtos mais vendidos no caixa
+    try:
+        produtos_top = conn.execute("""
+            SELECT iv.nome_produto, SUM(iv.quantidade) as qtde,
+                   SUM(iv.total_item) as total
+            FROM itens_venda iv
+            JOIN vendas v ON v.id = iv.venda_id
+            WHERE v.caixa_id=? AND v.status='CONCLUIDA'
+            GROUP BY iv.nome_produto
+            ORDER BY total DESC
+            LIMIT 10
+        """, (caixa_id,)).fetchall()
+    except Exception:
+        produtos_top = []
+
     conn.close()
     return {
-        "caixa":       dict(cx) if cx else {},
-        "vendas":      [dict(v) for v in vendas],
-        "total_vendas":total_vendas[0],
-        "qtde_vendas": total_vendas[1],
-        "sangria":     sangria,
-        "suprimento":  suprimento,
+        "caixa":        dict(cx) if cx else {},
+        "vendas":       [dict(v) for v in vendas],
+        "total_vendas": total_vendas[0],
+        "qtde_vendas":  total_vendas[1],
+        "sangria":      sangria,
+        "suprimento":   suprimento,
+        "produtos_top": [dict(p) for p in produtos_top],
     }
 
 
@@ -177,8 +193,50 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                      text_color=COR_ACENTO).grid(
             row=0, column=1, padx=12, pady=6, sticky="e")
 
+        # ── Produtos mais vendidos ────────────────────────────────────────────
+        sec3 = self._secao(scroll, 3, "🏆  Produtos Mais Vendidos")
+        sec3.grid_columnconfigure((0,1,2), weight=1)
+
+        cab3 = ctk.CTkFrame(sec3, fg_color=COR_ACENTO_LIGHT,
+                            corner_radius=8, height=34)
+        cab3.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0,4))
+        cab3.grid_propagate(False)
+        for i, (c, p) in enumerate(zip(
+            ["Produto", "Qtde", "Total"], [5, 2, 2]
+        )):
+            cab3.grid_columnconfigure(i, weight=p)
+            ctk.CTkLabel(cab3, text=c,
+                         font=("Courier New",10,"bold"),
+                         text_color=COR_ACENTO).grid(
+                row=0, column=i, padx=6, pady=6, sticky="w")
+
+        prods_top = res.get("produtos_top", [])
+        if prods_top:
+            for idx, p in enumerate(prods_top):
+                cor_bg = COR_LINHA_PAR if idx % 2 == 0 else COR_CARD
+                row_f  = ctk.CTkFrame(sec3, fg_color=cor_bg,
+                                      corner_radius=6, height=30)
+                row_f.grid(row=idx+1, column=0, columnspan=3,
+                           sticky="ew", pady=1)
+                row_f.grid_propagate(False)
+                row_f.grid_columnconfigure((0,1,2), weight=1)
+                for i, (val, cor) in enumerate(zip(
+                    [p["nome_produto"][:35],
+                     f'{p["qtde"]:.2f}'.rstrip("0").rstrip("."),
+                     f'R$ {p["total"]:.2f}'],
+                    [COR_TEXTO, COR_TEXTO_SUB, COR_SUCESSO]
+                )):
+                    ctk.CTkLabel(row_f, text=val, font=FONTE_SMALL,
+                                 text_color=cor).grid(
+                        row=0, column=i, padx=6, sticky="w")
+        else:
+            ctk.CTkLabel(sec3, text="Nenhum item vendido.",
+                         font=FONTE_LABEL,
+                         text_color=COR_TEXTO_SUB).grid(
+                row=1, column=0, columnspan=3, pady=12)
+
         # ── Conferência de caixa ──────────────────────────────────────────────
-        sec2 = self._secao(scroll, 2, "🔍  Conferência — Valor em Caixa")
+        sec2 = self._secao(scroll, 4, "🔍  Conferência — Valor em Caixa")
         sec2.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(sec2, text="Valor contado (R$):",
@@ -209,10 +267,62 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
 
         self.saldo_esperado = saldo_esp
 
+    def _reimprimir_ultimo(self):
+        """Reimprime o último cupom de venda do caixa"""
+        try:
+            conn = get_conn()
+            venda = conn.execute("""
+                SELECT v.*, GROUP_CONCAT(
+                    iv.nome_produto||'|'||iv.quantidade||'|'||
+                    iv.preco_unitario||'|'||iv.total_item, ';;'
+                ) as itens_str
+                FROM vendas v
+                LEFT JOIN itens_venda iv ON iv.venda_id = v.id
+                WHERE v.caixa_id=? AND v.status='CONCLUIDA'
+                GROUP BY v.id
+                ORDER BY v.id DESC LIMIT 1
+            """, (self.caixa_id,)).fetchone()
+            conn.close()
+
+            if not venda:
+                messagebox.showinfo("Reimprimir", "Nenhuma venda encontrada.", parent=self)
+                return
+
+            # Monta itens
+            itens = []
+            if venda["itens_str"]:
+                for item_str in venda["itens_str"].split(";;"):
+                    partes = item_str.split("|")
+                    if len(partes) == 4:
+                        itens.append({
+                            "nome_produto":   partes[0],
+                            "quantidade":     float(partes[1]),
+                            "preco_unitario": float(partes[2]),
+                            "total_item":     float(partes[3]),
+                            "codigo_barras":  "",
+                            "desconto":       0,
+                        })
+
+            from utils.impressora import imprimir_cupom
+            ok, msg = imprimir_cupom(
+                venda_id=venda["id"],
+                itens=itens,
+                subtotal=venda["subtotal"],
+                desconto=venda["desconto"],
+                total=venda["total"],
+                forma_pagamento=venda["forma_pagamento"],
+                valor_pago=venda["valor_pago"],
+                troco=venda["troco"],
+                cpf=venda["cpf_cliente"] or ""
+            )
+            messagebox.showinfo("🖨️ Reimpressão", msg, parent=self)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao reimprimir: {e}", parent=self)
+
         # ── Botão fechar ──────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        btn_frame.grid(row=3, column=0, pady=16, sticky="ew")
-        btn_frame.grid_columnconfigure((0,1), weight=1)
+        btn_frame.grid(row=5, column=0, pady=16, sticky="ew")
+        btn_frame.grid_columnconfigure((0,1,2), weight=1)
 
         ctk.CTkButton(btn_frame,
                       text="🖨️  Imprimir Relatório",
@@ -223,12 +333,20 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                       ).grid(row=0, column=0, padx=8, sticky="ew")
 
         ctk.CTkButton(btn_frame,
+                      text="🔄  Reimprimir Último Cupom",
+                      font=FONTE_BTN, height=48,
+                      fg_color="#374151", hover_color="#1F2937",
+                      text_color="white",
+                      command=self._reimprimir_ultimo
+                      ).grid(row=0, column=1, padx=8, sticky="ew")
+
+        ctk.CTkButton(btn_frame,
                       text="🔒  FECHAR CAIXA",
                       font=("Georgia",14,"bold"), height=48,
                       fg_color=COR_PERIGO, hover_color=COR_PERIGO2,
                       text_color="white",
                       command=lambda: self._fechar(res)
-                      ).grid(row=0, column=1, padx=8, sticky="ew")
+                      ).grid(row=0, column=2, padx=8, sticky="ew")
 
     def _card(self, parent, col, titulo, valor, cor):
         card = ctk.CTkFrame(parent, fg_color=COR_CARD, corner_radius=12,

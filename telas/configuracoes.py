@@ -81,8 +81,20 @@ class TelaConfiguracoes(ctk.CTkFrame):
         ctk.CTkLabel(sec5,text="Verifique o status de segurança do sistema (PCI DSS / LGPD)",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(anchor="w",pady=(0,8))
         ctk.CTkButton(sec5,text="🔐  Abrir Painel de Segurança",font=FONTE_BTN,fg_color=COR_ACENTO,hover_color=COR_ACENTO2,text_color="white",command=self._abrir_seguranca).pack(anchor="w",pady=4)
 
+        # Auditoria
+        sec_aud = self._secao(scroll, 8, "🔍  Auditoria do Sistema")
+        ctk.CTkLabel(sec_aud,
+                     text="Histórico completo de todas as ações — somente administrador",
+                     font=FONTE_SMALL, text_color=COR_TEXTO_SUB).pack(
+            anchor="w", pady=(0, 8))
+        ctk.CTkButton(sec_aud, text="🔍  Abrir Auditoria Visual",
+                      font=FONTE_BTN,
+                      fg_color=COR_ACENTO, hover_color=COR_ACENTO2,
+                      text_color="white",
+                      command=self._abrir_auditoria).pack(anchor="w", pady=4)
+
         # Sobre
-        sec6=self._secao(scroll,8,"ℹ️  Sobre")
+        sec6 = self._secao(scroll, 9, "ℹ️  Sobre")
         ctk.CTkLabel(sec6,text="PDV Padaria Da Laine  v2.0\nPython + CustomTkinter + SQLite\nNFC-e via Focus NFe\nSegurança: PCI DSS + LGPD",font=FONTE_SMALL,text_color=COR_TEXTO_SUB,justify="left").pack(pady=8,anchor="w")
 
     def _secao(self,parent,row,titulo):
@@ -197,6 +209,19 @@ class TelaConfiguracoes(ctk.CTkFrame):
         frame.grid_columnconfigure(0, weight=1)
         frame.grid_rowconfigure(0, weight=1)
         TelaUsuarios(frame).grid(row=0, column=0, sticky="nsew")
+
+    def _abrir_auditoria(self):
+        from telas.auditoria import TelaAuditoria
+        win = ctk.CTkToplevel(self)
+        win.title("Auditoria do Sistema")
+        win.geometry("1100x680")
+        win.configure(fg_color=COR_FUNDO)
+        win.grab_set()
+        frame = ctk.CTkFrame(win, fg_color=COR_FUNDO, corner_radius=0)
+        frame.pack(fill="both", expand=True)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
+        TelaAuditoria(frame).grid(row=0, column=0, sticky="nsew")
 
     def _abrir_seguranca(self):
         from telas.seguranca_painel import PainelSeguranca
