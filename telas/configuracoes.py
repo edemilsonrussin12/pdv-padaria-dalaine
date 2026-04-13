@@ -93,8 +93,24 @@ class TelaConfiguracoes(ctk.CTkFrame):
                       text_color="white",
                       command=self._abrir_auditoria).pack(anchor="w", pady=4)
 
+        # Atualização
+        sec_att = self._secao(scroll, 9, "🔄  Atualização do Sistema")
+        ctk.CTkLabel(sec_att,
+                     text="Verifica e instala atualizações disponíveis no servidor",
+                     font=FONTE_SMALL, text_color=COR_TEXTO_SUB).pack(anchor="w", pady=(0,8))
+        self.lbl_versao_att = ctk.CTkLabel(sec_att, text="",
+                     font=FONTE_SMALL, text_color=COR_TEXTO_SUB)
+        self.lbl_versao_att.pack(anchor="w", pady=(0,4))
+        ctk.CTkButton(sec_att, text="🔄  Verificar Atualizações Agora",
+                      font=FONTE_BTN,
+                      fg_color=COR_ACENTO, hover_color=COR_ACENTO2,
+                      text_color="white",
+                      command=self._verificar_atualizacao).pack(anchor="w", pady=4)
+        # Mostra versão atual
+        self.after(100, self._mostrar_versao_atual)
+
         # Sobre
-        sec6 = self._secao(scroll, 9, "ℹ️  Sobre")
+        sec6 = self._secao(scroll, 10, "ℹ️  Sobre")
         ctk.CTkLabel(sec6,text="PDV Padaria Da Laine  v2.0\nPython + CustomTkinter + SQLite\nNFC-e via Focus NFe\nSegurança: PCI DSS + LGPD",font=FONTE_SMALL,text_color=COR_TEXTO_SUB,justify="left").pack(pady=8,anchor="w")
 
     def _secao(self,parent,row,titulo):
@@ -233,3 +249,66 @@ class TelaConfiguracoes(ctk.CTkFrame):
             porta=self.ent_balanca_porta.get() or "COM1"
             peso,msg=get_peso_balanca(porta); messagebox.showinfo("Balança",msg)
         except Exception as e: messagebox.showerror("Erro",str(e))
+
+    def _mostrar_versao_atual(self):
+        try:
+            from utils.atualizacao import get_versao_atual
+            v = get_versao_atual()
+            self.lbl_versao_att.configure(text=f"Versão instalada: {v}")
+        except Exception:
+            pass
+
+    def _verificar_atualizacao(self):
+        """Verifica e instala atualização manualmente com 1 clique"""
+        from utils.atualizacao import verificar_versao_online, baixar_e_instalar, get_versao_atual
+        import threading
+
+        self.lbl_versao_att.configure(
+            text="🔍 Verificando...", text_color=COR_ACENTO)
+        self.update()
+
+        def _verificar():
+            try:
+                versao_nova, notas, _ = verificar_versao_online()
+                versao_atual = get_versao_atual()
+
+                if not versao_nova:
+                    self.after(0, lambda: self.lbl_versao_att.configure(
+                        text="❌ Sem conexão com internet.",
+                        text_color=COR_PERIGO))
+                    return
+
+                if versao_nova == versao_atual:
+                    self.after(0, lambda: self.lbl_versao_att.configure(
+                        text=f"✅ Sistema atualizado! v{versao_atual}",
+                        text_color=COR_SUCESSO))
+                    return
+
+                # Tem atualização!
+                self.after(0, lambda: self.lbl_versao_att.configure(
+                    text=f"⬇️ Baixando v{versao_nova}...",
+                    text_color=COR_ACENTO))
+
+                ok, msg = baixar_e_instalar(versao_nova)
+
+                if ok:
+                    msg_ok = f"v{versao_nova} instalada! Feche e abra o PDV."
+                    msg_dlg = f"Versão {versao_nova} instalada!\n{notas}\nFeche e abra o PDV."
+                    self.after(0, lambda m=msg_ok, d=msg_dlg: [
+                        self.lbl_versao_att.configure(
+                            text=f"✅ {m}",
+                            text_color=COR_SUCESSO),
+                        messagebox.showinfo(
+                            "✅ Atualização Instalada!", d, parent=self)
+                    ])
+                else:
+                    self.after(0, lambda: self.lbl_versao_att.configure(
+                        text=f"❌ Erro: {msg}",
+                        text_color=COR_PERIGO))
+
+            except Exception as e:
+                self.after(0, lambda: self.lbl_versao_att.configure(
+                    text=f"❌ Erro: {e}",
+                    text_color=COR_PERIGO))
+
+        threading.Thread(target=_verificar, daemon=True).start()
