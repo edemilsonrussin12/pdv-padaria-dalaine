@@ -1,129 +1,129 @@
 """
-utils/atualizacao.py — Atualização automática silenciosa via GitHub
-O PDV verifica e instala atualizações automaticamente ao abrir
+utils/atualizacao.py — Atualização automática via GitHub Releases
+Baixa o EXE novo completo — funciona mesmo com PyInstaller!
 """
-import os, sys, json, threading, urllib.request, zipfile, shutil
+import os, sys, json, threading, urllib.request, shutil
 from datetime import datetime
 
-GITHUB_USUARIO  = "edemilsonrussin12"
-GITHUB_REPO     = "pdv-padaria-dalaine"
+GITHUB_USUARIO = "edemilsonrussin12"
+GITHUB_REPO    = "pdv-padaria-dalaine"
 
-URL_VERSAO = f"https://raw.githubusercontent.com/{GITHUB_USUARIO}/{GITHUB_REPO}/main/versao.json"
-URL_ZIP    = f"https://github.com/{GITHUB_USUARIO}/{GITHUB_REPO}/archive/refs/heads/main.zip"
-
-def get_versao_atual():
-    """Lê a versão instalada do versao.json local — nunca fica travada"""
-    try:
-        base = get_base_dir()
-        path = os.path.join(base, "versao.json")
-        with open(path, "r", encoding="utf-8") as f:
-            dados = json.load(f)
-        return dados.get("versao", "0.0.0")
-    except Exception:
-        return "0.0.0"
+URL_VERSAO  = f"https://raw.githubusercontent.com/{GITHUB_USUARIO}/{GITHUB_REPO}/main/versao.json"
+URL_RELEASE = f"https://github.com/{GITHUB_USUARIO}/{GITHUB_REPO}/releases/latest/download/PDV_Padaria_DaLaine.exe"
 
 def get_base_dir():
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def verificar_versao_online():
+def get_versao_atual():
     try:
-        import ssl
-        # Tenta com SSL padrão primeiro
-        try:
-            ctx = ssl.create_default_context()
-            req = urllib.request.Request(URL_VERSAO,
-                headers={"User-Agent": "PDV-PadariaLaine/2.0"})
-            with urllib.request.urlopen(req, timeout=8, context=ctx) as r:
-                dados = json.loads(r.read().decode())
-            return dados.get("versao"), dados.get("notas",""), dados.get("obrigatorio", False)
-        except Exception:
-            pass
-        # Fallback: ignora verificação SSL (Windows sem certificados)
+        path = os.path.join(get_base_dir(), "versao.json")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f).get("versao", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+def _ssl_open(url, timeout=10):
+    """Abre URL com SSL — tenta padrão, fallback sem verificação"""
+    import ssl
+    req = urllib.request.Request(url, headers={"User-Agent": "PDV-PadariaLaine/2.0"})
+    try:
+        ctx = ssl.create_default_context()
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+    except Exception:
         ctx2 = ssl.create_default_context()
         ctx2.check_hostname = False
         ctx2.verify_mode = ssl.CERT_NONE
-        req = urllib.request.Request(URL_VERSAO,
-            headers={"User-Agent": "PDV-PadariaLaine/2.0"})
-        with urllib.request.urlopen(req, timeout=8, context=ctx2) as r:
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx2)
+
+def verificar_versao_online():
+    try:
+        with _ssl_open(URL_VERSAO, timeout=8) as r:
             dados = json.loads(r.read().decode())
         return dados.get("versao"), dados.get("notas",""), dados.get("obrigatorio", False)
     except Exception as e:
         print(f"[PDV] Erro verificar versão: {e}")
         return None, "", False
 
-def baixar_e_instalar(versao_nova=""):
-    """Baixa e instala atualização silenciosamente"""
+def baixar_e_instalar(versao_nova="", callback_progresso=None):
+    """
+    Baixa o EXE novo do GitHub Releases e substitui o atual.
+    Funciona mesmo com PyInstaller --onedir!
+    """
     try:
-        base     = get_base_dir()
-        zip_path = os.path.join(base, "_update.zip")
+        base    = get_base_dir()
+        exe_atual = os.path.join(base, "PDV_Padaria_DaLaine.exe")
+        exe_novo  = os.path.join(base, "PDV_Padaria_DaLaine_novo.exe")
+        exe_bak   = os.path.join(base, "PDV_Padaria_DaLaine_bak.exe")
 
-        import ssl
-        # Tenta com SSL padrão, fallback sem verificação
-        def _baixar(url, path, timeout=60):
-            try:
-                ctx = ssl.create_default_context()
-                req = urllib.request.Request(url, headers={"User-Agent": "PDV-PadariaLaine/2.0"})
-                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
-                    with open(path, "wb") as f: f.write(r.read())
-                return True
-            except Exception:
-                ctx2 = ssl.create_default_context()
-                ctx2.check_hostname = False
-                ctx2.verify_mode = ssl.CERT_NONE
-                req = urllib.request.Request(url, headers={"User-Agent": "PDV-PadariaLaine/2.0"})
-                with urllib.request.urlopen(req, timeout=timeout, context=ctx2) as r:
-                    with open(path, "wb") as f: f.write(r.read())
-                return True
-        _baixar(URL_ZIP, zip_path)
+        if callback_progresso:
+            callback_progresso("⬇️ Baixando novo EXE...")
 
-        # Extrair apenas arquivos .py — nunca sobrescreve banco ou licença
-        with zipfile.ZipFile(zip_path, "r") as z:
-            for item in z.namelist():
-                if not item.endswith(".py"):
-                    continue
-                if any(x in item for x in ["padaria.db","licenca","__pycache__"]):
-                    continue
-                partes = item.split("/", 1)
-                if len(partes) < 2 or not partes[1]:
-                    continue
-                destino = os.path.join(base, partes[1])
-                os.makedirs(os.path.dirname(destino), exist_ok=True)
-                with z.open(item) as src, open(destino, "wb") as dst:
-                    dst.write(src.read())
+        # Baixa o EXE novo
+        with _ssl_open(URL_RELEASE, timeout=120) as r:
+            total = int(r.headers.get("Content-Length", 0))
+            baixado = 0
+            with open(exe_novo, "wb") as f:
+                while True:
+                    chunk = r.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    baixado += len(chunk)
+                    if callback_progresso and total > 0:
+                        pct = int(baixado / total * 100)
+                        callback_progresso(f"⬇️ Baixando... {pct}%")
 
-        os.remove(zip_path)
+        if callback_progresso:
+            callback_progresso("📦 Instalando...")
 
-        # ✅ Atualiza versao.json local para evitar loop de atualização
+        # Cria bat para substituir o EXE após fechar
+        bat_path = os.path.join(base, "_atualizar.bat")
+        with open(bat_path, "w", encoding="utf-8") as f:
+            f.write(f"""@echo off
+timeout /t 2 /nobreak >nul
+if exist "{exe_bak}" del /f /q "{exe_bak}"
+move /y "{exe_atual}" "{exe_bak}" >nul
+move /y "{exe_novo}" "{exe_atual}" >nul
+del /f /q "{bat_path}"
+start "" "{exe_atual}"
+""")
+
+        # Atualiza versao.json local
         if versao_nova:
             versao_path = os.path.join(base, "versao.json")
-            try:
-                dados_versao = {"versao": versao_nova,
-                                "data": datetime.now().strftime("%Y-%m-%d"),
-                                "notas": "Atualização automática",
-                                "obrigatorio": False}
-                with open(versao_path, "w", encoding="utf-8") as f:
-                    json.dump(dados_versao, f, ensure_ascii=False, indent=4)
-                print(f"[PDV] versao.json atualizado para {versao_nova}")
-            except Exception as e:
-                print(f"[PDV] Aviso: não foi possível atualizar versao.json: {e}")
+            dados_versao = {
+                "versao": versao_nova,
+                "data": datetime.now().strftime("%Y-%m-%d"),
+                "notas": "Atualização automática",
+                "obrigatorio": False
+            }
+            with open(versao_path, "w", encoding="utf-8") as f:
+                json.dump(dados_versao, f, ensure_ascii=False, indent=4)
 
-        # Salvar timestamp da instalação
-        ver_path = os.path.join(base, "versao_instalada.txt")
-        with open(ver_path, "w") as f:
-            f.write(datetime.now().strftime("%Y-%m-%d %H:%M"))
+        return True, bat_path
 
-        return True, "OK"
     except Exception as e:
+        # Limpa arquivo parcial se existir
+        try:
+            if os.path.exists(exe_novo):
+                os.remove(exe_novo)
+        except Exception:
+            pass
         return False, str(e)
 
+def aplicar_atualizacao(bat_path):
+    """Executa o bat que substitui o EXE e reinicia"""
+    import subprocess
+    subprocess.Popen(
+        ["cmd", "/c", bat_path],
+        creationflags=subprocess.CREATE_NO_WINDOW
+    )
+    sys.exit(0)
+
 def verificar_atualizacao_async(callback=None):
-    """
-    Verifica e instala atualização em background.
-    SILENCIOSO — usuário não precisa fazer nada!
-    Só reinicia o sistema se tiver atualização.
-    """
+    """Verifica atualização em background ao iniciar"""
     def _verificar():
         try:
             versao_nova, notas, obrigatorio = verificar_versao_online()
@@ -132,64 +132,89 @@ def verificar_atualizacao_async(callback=None):
             print(f"[PDV] Versão local: {versao_atual} | GitHub: {versao_nova}")
 
             if not versao_nova or versao_nova == versao_atual:
-                print(f"[PDV] Sistema atualizado. Nenhuma ação necessária.")
+                print("[PDV] Sistema atualizado. Nenhuma ação necessária.")
                 return
 
-            # TEM ATUALIZAÇÃO — instala silenciosamente em background
-            print(f"[PDV] Atualização {versao_nova} disponível. Instalando...")
-            ok, msg = baixar_e_instalar(versao_nova)
-
-            if ok:
-                print(f"[PDV] Atualização instalada com sucesso!")
-                # Avisar usuário para reiniciar (só um aviso simples)
-                if callback:
-                    callback(True, versao_nova, notas, obrigatorio)
-            else:
-                print(f"[PDV] Erro na atualização: {msg}")
+            print(f"[PDV] Atualização {versao_nova} disponível!")
+            if callback:
+                callback(True, versao_nova, notas, obrigatorio)
 
         except Exception as e:
-            print(f"[PDV] Verificação de atualização falhou: {e}")
+            print(f"[PDV] Verificação falhou: {e}")
 
     threading.Thread(target=_verificar, daemon=True).start()
 
 def mostrar_dialogo_atualizacao(parent, versao, notas, obrigatorio=False):
-    """
-    Aviso SIMPLES — só informa que foi atualizado
-    Pede para reiniciar o sistema
-    """
+    """Aviso de atualização disponível"""
     try:
         import customtkinter as ctk
         from tema import (COR_CARD, COR_ACENTO, COR_ACENTO2,
-                         COR_SUCESSO, COR_SUCESSO2, COR_TEXTO,
-                         COR_TEXTO_SUB, FONTE_TITULO, FONTE_LABEL,
-                         FONTE_SMALL, FONTE_BTN)
+                         COR_SUCESSO, COR_SUCESSO2, COR_PERIGO, COR_PERIGO2,
+                         COR_TEXTO, COR_TEXTO_SUB, FONTE_TITULO,
+                         FONTE_LABEL, FONTE_SMALL, FONTE_BTN)
 
         win = ctk.CTkToplevel(parent)
-        win.title("Sistema Atualizado!")
-        win.geometry("400x250")
+        win.title("Atualização Disponível!")
+        win.geometry("420x280")
         win.configure(fg_color=COR_CARD)
         win.grab_set()
         win.lift()
         win.focus_force()
 
-        ctk.CTkLabel(win, text="✅  Sistema Atualizado!",
-                     font=FONTE_TITULO, text_color=COR_SUCESSO).pack(pady=(24,8))
-        ctk.CTkLabel(win, text=f"Versão {versao} instalada com sucesso!",
+        ctk.CTkLabel(win, text="🔄  Atualização Disponível!",
+                     font=FONTE_TITULO, text_color=COR_ACENTO).pack(pady=(24,8))
+        ctk.CTkLabel(win, text=f"Versão {versao} disponível!",
                      font=FONTE_LABEL, text_color=COR_TEXTO).pack()
         if notas:
             ctk.CTkLabel(win, text=notas,
                          font=FONTE_SMALL, text_color=COR_TEXTO_SUB,
-                         wraplength=340).pack(pady=8)
+                         wraplength=360).pack(pady=8)
 
-        ctk.CTkLabel(win,
-                     text="Feche e abra o sistema para aplicar.",
-                     font=FONTE_SMALL, text_color=COR_TEXTO_SUB).pack(pady=4)
+        lbl_status = ctk.CTkLabel(win, text="",
+                                   font=FONTE_SMALL, text_color=COR_ACENTO)
+        lbl_status.pack(pady=4)
 
-        ctk.CTkButton(win, text="OK — Entendido",
-                      font=FONTE_BTN, height=44,
-                      fg_color=COR_SUCESSO, hover_color=COR_SUCESSO2,
-                      text_color="white",
-                      command=win.destroy).pack(pady=16, padx=40, fill="x")
+        def instalar():
+            btn_instalar.configure(state="disabled", text="Instalando...")
+            lbl_status.configure(text="⬇️ Baixando...")
+            win.update()
+
+            def _progress(msg):
+                win.after(0, lambda: lbl_status.configure(text=msg))
+
+            def _instalar():
+                ok, resultado = baixar_e_instalar(versao, _progress)
+                if ok:
+                    win.after(0, lambda: [
+                        lbl_status.configure(
+                            text="✅ Instalado! Reiniciando...",
+                            text_color=COR_SUCESSO),
+                        win.after(1500, lambda: aplicar_atualizacao(resultado))
+                    ])
+                else:
+                    win.after(0, lambda: [
+                        lbl_status.configure(
+                            text=f"❌ Erro: {resultado}",
+                            text_color=COR_PERIGO),
+                        btn_instalar.configure(state="normal", text="Tentar Novamente")
+                    ])
+
+            threading.Thread(target=_instalar, daemon=True).start()
+
+        btn_instalar = ctk.CTkButton(
+            win, text="⬇️  Instalar Agora e Reiniciar",
+            font=FONTE_BTN, height=44,
+            fg_color=COR_SUCESSO, hover_color=COR_SUCESSO2,
+            text_color="white",
+            command=instalar)
+        btn_instalar.pack(pady=8, padx=40, fill="x")
+
+        ctk.CTkButton(win, text="Mais tarde",
+                      font=FONTE_SMALL, height=32,
+                      fg_color="transparent",
+                      hover_color=COR_CARD,
+                      text_color=COR_TEXTO_SUB,
+                      command=win.destroy).pack()
 
     except Exception as e:
-        print(f"Dialogo: {e}")
+        print(f"[PDV] Dialogo erro: {e}")

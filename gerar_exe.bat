@@ -1,9 +1,9 @@
 @echo off
-title Gerando EXE - PDV Padaria Da Laine v2.1.3
+title Gerando EXE - PDV Padaria Da Laine
 color 0A
 echo.
 echo ================================================
-echo   PDV Padaria Da Laine v2.1.3
+echo   PDV Padaria Da Laine
 echo   Gerando executavel final...
 echo ================================================
 echo.
@@ -39,7 +39,7 @@ if not exist logo.ico (
     echo Aviso: icone nao gerado, continuando sem icone...
 )
 
-:: Gerar EXE — ONEDIR para atualização automática funcionar!
+:: Gerar EXE — ONEDIR para atualizacao automatica funcionar!
 echo.
 echo [5/5] Gerando EXE (aguarde 5-10 minutos)...
 echo.
@@ -102,10 +102,25 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: Copiar licenca e logo para dist
+:: ── Copiar arquivos necessarios para dist ──
+echo.
+echo Copiando arquivos para dist...
+
 if exist licenca.key copy /y licenca.key dist\PDV_Padaria_DaLaine\licenca.key >nul
 if exist logo.png    copy /y logo.png    dist\PDV_Padaria_DaLaine\logo.png    >nul
 if exist logo.ico    copy /y logo.ico    dist\PDV_Padaria_DaLaine\logo.ico    >nul
+
+:: IMPORTANTE: copia versao.json para fora do _internal (necessario para atualizacao automatica)
+copy /y versao.json dist\PDV_Padaria_DaLaine\versao.json >nul
+echo versao.json copiado para dist!
+
+:: Mostra versao gerada
+echo.
+for /f "tokens=2 delims=:" %%a in ('findstr "versao" versao.json') do (
+    echo Versao gerada: %%a
+    goto :fim_versao
+)
+:fim_versao
 
 echo.
 echo ================================================
@@ -114,8 +129,11 @@ echo ================================================
 echo   Pasta: dist\PDV_Padaria_DaLaine\
 echo   EXE:   dist\PDV_Padaria_DaLaine\PDV_Padaria_DaLaine.exe
 echo.
-echo   IMPORTANTE: Copie a PASTA INTEIRA para a padaria
-echo   Nao copie so o .exe!
+echo   IMPORTANTE: Substitua a licenca.key da padaria!
+echo   licenca da padaria: 09FD6BA46D10D137
+echo.
+echo   Copie a PASTA INTEIRA para pendrive
+echo   e leve para a padaria!
 echo ================================================
 echo.
 set /p abrir="Abrir pasta dist\? (S/N): "

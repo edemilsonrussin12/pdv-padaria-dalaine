@@ -259,8 +259,9 @@ class TelaConfiguracoes(ctk.CTkFrame):
             pass
 
     def _verificar_atualizacao(self):
-        """Verifica e instala atualização manualmente com 1 clique"""
-        from utils.atualizacao import verificar_versao_online, baixar_e_instalar, get_versao_atual
+        """Verifica e instala atualização manualmente — baixa EXE novo!"""
+        from utils.atualizacao import (verificar_versao_online, baixar_e_instalar,
+                                        get_versao_atual, aplicar_atualizacao)
         import threading
 
         self.lbl_versao_att.configure(
@@ -284,26 +285,24 @@ class TelaConfiguracoes(ctk.CTkFrame):
                         text_color=COR_SUCESSO))
                     return
 
-                # Tem atualização!
-                self.after(0, lambda: self.lbl_versao_att.configure(
-                    text=f"⬇️ Baixando v{versao_nova}...",
-                    text_color=COR_ACENTO))
+                # Tem atualização — baixa o EXE novo!
+                def _progress(msg):
+                    self.after(0, lambda m=msg: self.lbl_versao_att.configure(
+                        text=m, text_color=COR_ACENTO))
 
-                ok, msg = baixar_e_instalar(versao_nova)
+                _progress(f"⬇️ Baixando v{versao_nova}...")
+                ok, resultado = baixar_e_instalar(versao_nova, _progress)
 
                 if ok:
-                    msg_ok = f"v{versao_nova} instalada! Feche e abra o PDV."
-                    msg_dlg = f"Versão {versao_nova} instalada!\n{notas}\nFeche e abra o PDV."
-                    self.after(0, lambda m=msg_ok, d=msg_dlg: [
+                    def _aplicar():
                         self.lbl_versao_att.configure(
-                            text=f"✅ {m}",
-                            text_color=COR_SUCESSO),
-                        messagebox.showinfo(
-                            "✅ Atualização Instalada!", d, parent=self)
-                    ])
+                            text=f"✅ v{versao_nova} instalada! Reiniciando...",
+                            text_color=COR_SUCESSO)
+                        self.after(1500, lambda: aplicar_atualizacao(resultado))
+                    self.after(0, _aplicar)
                 else:
                     self.after(0, lambda: self.lbl_versao_att.configure(
-                        text=f"❌ Erro: {msg}",
+                        text=f"❌ Erro: {resultado}",
                         text_color=COR_PERIGO))
 
             except Exception as e:
