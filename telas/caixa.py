@@ -909,18 +909,29 @@ class TelaCaixa(ctk.CTkFrame):
         if not self.caixa_id:
             messagebox.showwarning("Aviso","Nenhum caixa aberto."); return
         from telas.fechamento import TelaFechamentoCaixa
+        win = ctk.CTkToplevel(self)
+        win.title("Fechamento de Caixa")
+        win.geometry("900x680")
+        win.configure(fg_color=COR_FUNDO)
+        win.grab_set()
+        frame = ctk.CTkFrame(win, fg_color=COR_FUNDO, corner_radius=0)
+        frame.pack(fill="both", expand=True)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
         def pos_fechar():
             self.caixa_id = None
             self.lbl_status_cx.configure(
                 text="● Caixa FECHADO", text_color=COR_PERIGO)
-        DialogoFechamentoCaixa(self, self.caixa_id, pos_fechar)
+            win.destroy()
+        tela = TelaFechamentoCaixa(frame, usuario=self.vendedor_atual)
+        tela.grid(row=0, column=0, sticky="nsew")
 
 class DialogoReceber(ctk.CTkToplevel):
-    """Pagamento estilo Lovable — botões rápidos de valor + troco automático"""
+    """Pagamento misto — múltiplas formas + botões rápidos + troco automático"""
     def __init__(self, master, total, callback):
         super().__init__(master)
         self.title("Finalizar Pagamento")
-        self.geometry("520x700")
+        self.geometry("540x780")
         self.configure(fg_color=COR_CARD)
         self.grab_set()
         self.resizable(False, False)
@@ -928,6 +939,7 @@ class DialogoReceber(ctk.CTkToplevel):
         self.callback            = callback
         self.forma_sel           = None
         self.subcategoria_cartao = None
+        self.pagamentos          = []  # pagamentos já lançados
         self._build()
         self.bind("<F9>", lambda e: self._confirmar())
 
@@ -1060,6 +1072,26 @@ class DialogoReceber(ctk.CTkToplevel):
             font=("Georgia", 26, "bold"), text_color="white")
         self.lbl_troco.pack(pady=(0,8))
 
+        # ── Pagamentos já lançados ────────────────────────────────────────
+        self.frame_pgtos = ctk.CTkFrame(self, fg_color=COR_CARD2, corner_radius=8)
+        self.frame_pgtos.pack(fill="x", padx=24, pady=(0,4))
+        self.lbl_pgtos_titulo = ctk.CTkLabel(
+            self.frame_pgtos, text="Pagamentos lançados:",
+            font=FONTE_SMALL, text_color=COR_TEXTO_SUB)
+        self.lbl_pgtos_titulo.pack(anchor="w", padx=8, pady=(4,0))
+        self.scroll_pgtos = ctk.CTkScrollableFrame(
+            self.frame_pgtos, fg_color="transparent", height=50)
+        self.scroll_pgtos.pack(fill="x", padx=4, pady=(0,4))
+
+        # Botão adicionar pagamento parcial
+        ctk.CTkButton(
+            self, text="➕  Adicionar este valor como pagamento parcial",
+            font=FONTE_SMALL, height=34,
+            fg_color=COR_ACENTO_LIGHT, hover_color=COR_BORDA,
+            text_color=COR_ACENTO, corner_radius=8,
+            command=self._adicionar_pagamento
+        ).pack(fill="x", padx=24, pady=(0,4))
+
         # ── CPF ───────────────────────────────────────────────────────────
         fc = ctk.CTkFrame(self, fg_color="transparent")
         fc.pack(fill="x", padx=24, pady=2)
@@ -1082,6 +1114,61 @@ class DialogoReceber(ctk.CTkToplevel):
 
         # Seleciona Dinheiro por padrão
         self._sel_forma("DINHEIRO")
+        self._atualizar_troco()
+
+    def _adicionar_pagamento(self):
+        """Adiciona pagamento parcial e permite lançar outro"""
+        forma = self._get_forma_completa()
+        if not forma: return
+        try:
+            valor = float(self.ent_valor.get().replace(",","."))
+            if valor <= 0: raise ValueError
+        except ValueError:
+            messagebox.showerror("Erro","Valor inválido.",parent=self); return
+
+        total_ja = sum(p["valor"] for p in self.pagamentos)
+        restante = self.total - total_ja
+        if valor > restante + 0.01:
+            valor = round(restante, 2)
+
+        self.pagamentos.append({"forma": forma, "valor": valor})
+        self._redesenhar_pgtos()
+
+        # Limpa para próximo pagamento
+        self.ent_valor.delete(0, "end")
+        total_ja2 = sum(p["valor"] for p in self.pagamentos)
+        restante2 = round(self.total - total_ja2, 2)
+        if restante2 > 0:
+            self.ent_valor.insert(0, f"{restante2:.2f}")
+        else:
+            self.ent_valor.insert(0, "0,00")
+        self._atualizar_troco()
+
+    def _redesenhar_pgtos(self):
+        """Redesenha lista de pagamentos lançados"""
+        for w in self.scroll_pgtos.winfo_children():
+            w.destroy()
+        total_pgtos = 0
+        for i, p in enumerate(self.pagamentos):
+            total_pgtos += p["valor"]
+            f = ctk.CTkFrame(self.scroll_pgtos, fg_color="transparent")
+            f.pack(fill="x", pady=1)
+            ctk.CTkLabel(f, text=f'✅ {p["forma"]}',
+                         font=FONTE_SMALL, text_color=COR_SUCESSO).pack(side="left", padx=4)
+            ctk.CTkLabel(f, text=f'R$ {p["valor"]:.2f}',
+                         font=("Georgia",12,"bold"), text_color=COR_SUCESSO).pack(side="left", padx=4)
+            i_cap = i
+            ctk.CTkButton(f, text="✕", width=24, height=20,
+                          font=("Arial",9), fg_color=COR_PERIGO,
+                          hover_color=COR_PERIGO2, text_color="white",
+                          command=lambda i=i_cap: self._remover_pgto(i)).pack(side="right", padx=4)
+        if self.pagamentos:
+            self.lbl_pgtos_titulo.configure(
+                text=f"Pagamentos: R$ {total_pgtos:.2f} lançados — faltam R$ {max(0,self.total-total_pgtos):.2f}")
+
+    def _remover_pgto(self, idx):
+        self.pagamentos.pop(idx)
+        self._redesenhar_pgtos()
         self._atualizar_troco()
 
     def _set_valor_rapido(self, val):
@@ -1138,8 +1225,10 @@ class DialogoReceber(ctk.CTkToplevel):
 
     def _atualizar_troco(self, event=None):
         try:
-            pago  = float(self.ent_valor.get().replace(",","."))
-            troco = pago - self.total
+            pago        = float(self.ent_valor.get().replace(",","."))
+            total_pgtos = sum(p["valor"] for p in self.pagamentos)
+            total_pago  = pago + total_pgtos
+            troco       = total_pago - self.total
             if troco >= 0:
                 self.lbl_troco.configure(text=f"R$ {troco:.2f}")
                 self.frame_troco.configure(fg_color=COR_SUCESSO)
@@ -1162,20 +1251,36 @@ class DialogoReceber(ctk.CTkToplevel):
         return self.forma_sel
 
     def _confirmar(self):
-        forma = self._get_forma_completa()
-        if not forma:
-            return
         try:
-            pago = float(self.ent_valor.get().replace(",","."))
+            pago_atual = float(self.ent_valor.get().replace(",",".") or "0")
         except ValueError:
-            messagebox.showerror("Erro", "Valor inválido.", parent=self)
-            return
-        if pago < self.total - 0.01:
+            pago_atual = 0.0
+
+        # Se tem valor no campo, adiciona como último pagamento
+        if pago_atual > 0:
+            forma = self._get_forma_completa()
+            if not forma: return
+            self.pagamentos.append({"forma": forma, "valor": pago_atual})
+
+        total_pago = sum(p["valor"] for p in self.pagamentos)
+
+        if total_pago < self.total - 0.01:
             messagebox.showerror("Erro",
-                f"Valor insuficiente!\nFaltam R$ {self.total-pago:.2f}",
+                f"Valor insuficiente!\nFaltam R$ {self.total-total_pago:.2f}",
                 parent=self)
+            # Remove o pagamento que acabou de adicionar
+            if pago_atual > 0: self.pagamentos.pop()
             return
-        self.callback(forma, pago, self.ent_cpf.get())
+
+        # Monta forma de pagamento final
+        if len(self.pagamentos) == 1:
+            forma_final = self.pagamentos[0]["forma"]
+        else:
+            forma_final = " + ".join(
+                f'{p["forma"]}(R${p["valor"]:.2f})' for p in self.pagamentos)
+
+        troco = max(0, total_pago - self.total)
+        self.callback(forma_final, total_pago, self.ent_cpf.get())
         self.destroy()
 
 class DialogoPrazo(ctk.CTkToplevel):

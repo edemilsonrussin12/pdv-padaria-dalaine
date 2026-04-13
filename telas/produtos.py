@@ -192,7 +192,7 @@ class FormularioProduto(ctk.CTkToplevel):
         self._build()
         if produto_id:
             self._preencher(produto_id)
-        self.after(100, lambda: self.ent_scan.focus_set())
+        self.after(300, self._focar_scan)
 
     def _secao(self, parent, row, titulo):
         frame = ctk.CTkFrame(parent, fg_color=COR_ACENTO_LIGHT, corner_radius=6, height=28)
@@ -213,6 +213,16 @@ class FormularioProduto(ctk.CTkToplevel):
         ent.grid(row=row, column=1, sticky="ew", pady=5)
         self.campos[key] = ent
         return row + 1
+
+    def _focar_scan(self):
+        """Força foco no campo do leitor de código de barras"""
+        try:
+            self.lift()
+            self.focus_force()
+            self.ent_scan.focus_set()
+            self.ent_scan.select_range(0, "end")
+        except Exception:
+            pass
 
     def _build(self):
         ctk.CTkLabel(
