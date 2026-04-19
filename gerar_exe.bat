@@ -21,7 +21,7 @@ if errorlevel 1 (
 :: Instalar dependencias
 echo.
 echo [2/5] Instalando dependencias...
-python -m pip install customtkinter pillow pyinstaller --quiet --upgrade
+python -m pip install customtkinter pillow pyinstaller reportlab --quiet --upgrade
 
 :: Limpar builds anteriores
 echo.
@@ -39,7 +39,7 @@ if not exist logo.ico (
     echo Aviso: icone nao gerado, continuando sem icone...
 )
 
-:: Gerar EXE — ONEDIR para atualizacao automatica funcionar!
+:: Gerar EXE
 echo.
 echo [5/5] Gerando EXE (aguarde 5-10 minutos)...
 echo.
@@ -71,7 +71,19 @@ if exist logo.ico (
         --hidden-import ssl ^
         --hidden-import base64 ^
         --hidden-import logging ^
+        --hidden-import reportlab ^
+        --hidden-import reportlab.lib ^
+        --hidden-import reportlab.lib.pagesizes ^
+        --hidden-import reportlab.lib.colors ^
+        --hidden-import reportlab.lib.units ^
+        --hidden-import reportlab.platypus ^
+        --hidden-import reportlab.lib.styles ^
+        --hidden-import reportlab.lib.enums ^
+        --hidden-import reportlab.pdfgen ^
+        --hidden-import reportlab.pdfbase ^
+        --hidden-import reportlab.pdfbase.ttfonts ^
         --collect-all customtkinter ^
+        --collect-all reportlab ^
         --noconfirm ^
         main.py
 ) else (
@@ -91,7 +103,9 @@ if exist logo.ico (
         --hidden-import PIL.Image ^
         --hidden-import sqlite3 ^
         --hidden-import tkinter ^
+        --hidden-import reportlab ^
         --collect-all customtkinter ^
+        --collect-all reportlab ^
         --noconfirm ^
         main.py
 )
@@ -102,15 +116,12 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 
-:: ── Copiar arquivos necessarios para dist ──
+:: Copiar arquivos para dist
 echo.
 echo Copiando arquivos para dist...
-
 if exist licenca.key copy /y licenca.key dist\PDV_Padaria_DaLaine\licenca.key >nul
 if exist logo.png    copy /y logo.png    dist\PDV_Padaria_DaLaine\logo.png    >nul
 if exist logo.ico    copy /y logo.ico    dist\PDV_Padaria_DaLaine\logo.ico    >nul
-
-:: IMPORTANTE: copia versao.json para fora do _internal (necessario para atualizacao automatica)
 copy /y versao.json dist\PDV_Padaria_DaLaine\versao.json >nul
 echo versao.json copiado para dist!
 

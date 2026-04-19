@@ -85,6 +85,13 @@ class Dashboard(ctk.CTkFrame):
         self.row3.columnconfigure(0, weight=3)
         self.row3.columnconfigure(1, weight=2)
 
+        # Linha 4: meta do dia + pizza pagamentos + top produtos
+        self.row4 = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        self.row4.pack(fill="x", padx=20, pady=(0,12))
+        self.row4.columnconfigure(0, weight=2)
+        self.row4.columnconfigure(1, weight=2)
+        self.row4.columnconfigure(2, weight=3)
+
         # Botão atualizar
         bar = ctk.CTkFrame(self.scroll, fg_color="transparent", height=36)
         bar.pack(fill="x", padx=20, pady=(0,8))
@@ -105,6 +112,7 @@ class Dashboard(ctk.CTkFrame):
         self._status_caixa(dados)
         self._ultimas_vendas(dados)
         self._estoque_critico(dados)
+        self._meta_pizza_top(dados)
         self._saudacao()
         self.lbl_att.configure(
             text=f"Atualizado: {datetime.now().strftime('%H:%M:%S')}")
@@ -124,6 +132,7 @@ class Dashboard(ctk.CTkFrame):
             "caixa_abertura":0.0,"caixa_sangrias":0.0,"caixa_suprimentos":0.0,
             "ultimas_vendas":[],"estoque_critico":[],"vendas_hora":[0]*12,
             "meta_dia":2000.0,
+            "top_produtos":[],
         }
         try:
             conn = _db()
@@ -211,6 +220,23 @@ class Dashboard(ctk.CTkFrame):
                 idx = h[0]-8
                 if 0 <= idx < 12:
                     d["vendas_hora"][idx] = h[1]
+
+            # Top produtos hoje
+            top = conn.execute("""
+                SELECT iv.nome_produto, SUM(iv.quantidade) as qtde,
+                       SUM(iv.total_item) as total
+                FROM itens_venda iv JOIN vendas v ON v.id=iv.venda_id
+                WHERE date(v.data_hora)=? AND v.status='CONCLUIDA'
+                GROUP BY iv.nome_produto ORDER BY total DESC LIMIT 5
+            """, (hoje,)).fetchall()
+            d["top_produtos"] = [dict(r) for r in top]
+
+            # Meta do dia
+            try:
+                from banco.database import get_meta_dia
+                d["meta_dia"] = get_meta_dia(hoje)
+            except Exception:
+                d["meta_dia"] = 2000.0
 
             conn.close()
         except Exception as e:
@@ -416,6 +442,165 @@ class Dashboard(ctk.CTkFrame):
                                         fg_color="#E0E0E0", progress_color=cor)
                 pb.pack(fill="x", padx=10, pady=(0,6))
                 pb.set(min(1, pct))
+
+    def _meta_pizza_top(self, d):
+        for w in self.row4.winfo_children():
+            if getattr(w,"_r4",False): w.destroy()
+
+        # ── Card Meta do Dia ──────────────────────────────────────────────
+        card_meta = ctk.CTkFrame(self.row4, fg_color=CARD, corner_radius=16,
+                                  border_width=1, border_color=BORDA)
+        card_meta._r4 = True
+        card_meta.grid(row=0, column=0, sticky="nsew", padx=(0,8))
+
+        ctk.CTkLabel(card_meta, text="🎯  Meta do Dia",
+                     font=ctk.CTkFont("Georgia",13,"bold"),
+                     text_color=AZUL).pack(anchor="w", padx=18, pady=(14,4))
+
+        meta    = d["meta_dia"]
+        atual   = d["total_dia"]
+        pct     = min(1.0, atual/meta) if meta > 0 else 0
+        falta   = max(0, meta - atual)
+        cor_pb  = VERDE if pct >= 1 else (AZUL if pct >= 0.5 else LARANJA)
+
+        # Barra de progresso
+        f_prog = ctk.CTkFrame(card_meta, fg_color="transparent")
+        f_prog.pack(fill="x", padx=18, pady=(0,4))
+        ctk.CTkLabel(f_prog, text=f"R$ {atual:,.2f}".replace(",","X").replace(".",",").replace("X","."),
+                     font=ctk.CTkFont("Georgia",20,"bold"),
+                     text_color=cor_pb).pack(side="left")
+        ctk.CTkLabel(f_prog, text=f"/ R$ {meta:,.2f}".replace(",","X").replace(".",",").replace("X","."),
+                     font=ctk.CTkFont("Courier New",10),
+                     text_color=CINZA_TXT).pack(side="left", padx=4)
+
+        pb = ctk.CTkProgressBar(card_meta, height=14, corner_radius=7,
+                                 fg_color=BORDA, progress_color=cor_pb)
+        pb.pack(fill="x", padx=18, pady=(0,6))
+        pb.set(pct)
+
+        f_info = ctk.CTkFrame(card_meta, fg_color="transparent")
+        f_info.pack(fill="x", padx=18, pady=(0,10))
+        ctk.CTkLabel(f_info, text=f"{pct*100:.1f}% atingido",
+                     font=ctk.CTkFont("Courier New",10,"bold"),
+                     text_color=cor_pb).pack(side="left")
+        if falta > 0:
+            ctk.CTkLabel(f_info, text=f"Faltam R$ {falta:,.2f}".replace(",","X").replace(".",",").replace("X","."),
+                         font=ctk.CTkFont("Courier New",10),
+                         text_color=CINZA_TXT).pack(side="right")
+        else:
+            ctk.CTkLabel(f_info, text="✅ Meta atingida!",
+                         font=ctk.CTkFont("Courier New",10,"bold"),
+                         text_color=VERDE).pack(side="right")
+
+        # Campo para alterar meta
+        f_meta = ctk.CTkFrame(card_meta, fg_color=AZUL_CLARO, corner_radius=8)
+        f_meta.pack(fill="x", padx=18, pady=(0,14))
+        ctk.CTkLabel(f_meta, text="Meta:",
+                     font=ctk.CTkFont("Courier New",9),
+                     text_color=AZUL).pack(side="left", padx=8)
+        ent_meta = ctk.CTkEntry(f_meta, font=ctk.CTkFont("Courier New",10),
+                                width=90, height=28,
+                                fg_color="white", border_color=BORDA,
+                                text_color=AZUL)
+        ent_meta.insert(0, f"{meta:.2f}")
+        ent_meta.pack(side="left", padx=4, pady=4)
+
+        def salvar_meta():
+            try:
+                nova = float(ent_meta.get().replace(",","."))
+                from banco.database import set_meta_dia
+                set_meta_dia(nova)
+                self._carregar()
+            except Exception:
+                pass
+
+        ctk.CTkButton(f_meta, text="✅", width=32, height=28,
+                      font=ctk.CTkFont(size=12),
+                      fg_color=AZUL, hover_color=AZUL_ESCURO,
+                      text_color="white", corner_radius=6,
+                      command=salvar_meta).pack(side="left", padx=4, pady=4)
+
+        # ── Card Pizza Pagamentos ─────────────────────────────────────────
+        card_pizza = ctk.CTkFrame(self.row4, fg_color=CARD, corner_radius=16,
+                                   border_width=1, border_color=BORDA)
+        card_pizza._r4 = True
+        card_pizza.grid(row=0, column=1, sticky="nsew", padx=(0,8))
+
+        ctk.CTkLabel(card_pizza, text="💳  Pagamentos Hoje",
+                     font=ctk.CTkFont("Georgia",13,"bold"),
+                     text_color=AZUL).pack(anchor="w", padx=18, pady=(14,4))
+
+        canvas_pizza = tk.Canvas(card_pizza, bg=CARD, highlightthickness=0, height=160)
+        canvas_pizza.pack(fill="x", padx=18, pady=(0,8))
+
+        def draw_pizza(e=None):
+            canvas_pizza.delete("all")
+            W = canvas_pizza.winfo_width()
+            H = canvas_pizza.winfo_height()
+            if W < 10 or not d["forma_pagamento"]: return
+
+            formas = d["forma_pagamento"]
+            total  = sum(f["total"] for f in formas) or 1
+            cores_fp = ["#B45309","#059669","#2563EB","#DC2626",
+                        "#7C3AED","#D97706","#0891B2"]
+
+            cx = W//3; cy = H//2; r = min(cx,cy) - 10
+            start = 0
+            for i, fp in enumerate(formas):
+                ext = 360 * fp["total"] / total
+                cor = cores_fp[i % len(cores_fp)]
+                canvas_pizza.create_arc(cx-r, cy-r, cx+r, cy+r,
+                                        start=start, extent=ext,
+                                        fill=cor, outline="white", width=2)
+                start += ext
+
+            # Legenda
+            lx = cx*2 + 10; ly = 20
+            for i, fp in enumerate(formas):
+                cor = cores_fp[i % len(cores_fp)]
+                pct = fp["total"]/total*100
+                canvas_pizza.create_rectangle(lx, ly, lx+12, ly+12, fill=cor, outline="")
+                nome = fp["forma_pagamento"][:12]
+                canvas_pizza.create_text(lx+16, ly+6, text=f"{nome} {pct:.0f}%",
+                                         anchor="w", font=("Courier New",8), fill=TEXTO)
+                ly += 18
+
+        canvas_pizza.bind("<Configure>", draw_pizza)
+        canvas_pizza.after(50, draw_pizza)
+
+        # ── Card Top Produtos ─────────────────────────────────────────────
+        card_top = ctk.CTkFrame(self.row4, fg_color=CARD, corner_radius=16,
+                                 border_width=1, border_color=BORDA)
+        card_top._r4 = True
+        card_top.grid(row=0, column=2, sticky="nsew")
+
+        ctk.CTkLabel(card_top, text="🏆  Top Produtos Hoje",
+                     font=ctk.CTkFont("Georgia",13,"bold"),
+                     text_color=AZUL).pack(anchor="w", padx=18, pady=(14,4))
+
+        if not d["top_produtos"]:
+            ctk.CTkLabel(card_top, text="Nenhuma venda hoje.",
+                         font=ctk.CTkFont("Courier New",11),
+                         text_color=CINZA_TXT).pack(pady=20)
+        else:
+            total_top = sum(p["total"] for p in d["top_produtos"]) or 1
+            for i, p in enumerate(d["top_produtos"]):
+                pct = p["total"] / total_top
+                f = ctk.CTkFrame(card_top, fg_color="transparent")
+                f.pack(fill="x", padx=18, pady=2)
+                ctk.CTkLabel(f, text=f"{i+1}.",
+                             font=ctk.CTkFont("Courier New",9,"bold"),
+                             text_color=CINZA_TXT, width=18).pack(side="left")
+                ctk.CTkLabel(f, text=p["nome_produto"][:20],
+                             font=ctk.CTkFont("Georgia",10),
+                             text_color=TEXTO).pack(side="left")
+                ctk.CTkLabel(f, text=f"R$ {p['total']:.2f}",
+                             font=ctk.CTkFont("Courier New",9,"bold"),
+                             text_color=AZUL).pack(side="right")
+                pb2 = ctk.CTkProgressBar(card_top, height=4, corner_radius=2,
+                                          fg_color=BORDA, progress_color=AZUL)
+                pb2.pack(fill="x", padx=18, pady=(0,2))
+                pb2.set(pct)
 
     def _saudacao(self):
         h = datetime.now().hour

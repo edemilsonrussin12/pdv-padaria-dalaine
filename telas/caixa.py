@@ -220,25 +220,25 @@ class TelaCaixa(ctk.CTkFrame):
     def _build_painel_direito(self):
         painel=ctk.CTkFrame(self,fg_color=COR_CARD,corner_radius=12,border_width=1,border_color=COR_BORDA)
         painel.grid(row=1,column=1,padx=(8,16),pady=12,sticky="nsew"); painel.grid_columnconfigure(0,weight=1)
-        ctk.CTkLabel(painel,text="RESUMO DA VENDA",font=("Courier New",10,"bold"),text_color=COR_ACENTO).pack(pady=(20,4))
+        ctk.CTkLabel(painel,text="RESUMO DA VENDA",font=("Courier New",10,"bold"),text_color=COR_ACENTO).pack(pady=(10,4))
         def linha_valor(label,var_attr,cor=COR_TEXTO):
             f=ctk.CTkFrame(painel,fg_color="transparent"); f.pack(fill="x",padx=20,pady=2)
             ctk.CTkLabel(f,text=label,font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(side="left")
             lbl=ctk.CTkLabel(f,text="R$ 0,00",font=FONTE_LABEL,text_color=cor); lbl.pack(side="right")
             setattr(self,var_attr,lbl)
         linha_valor("Subtotal:","lbl_subtotal"); linha_valor("Desconto:","lbl_desconto",COR_PERIGO)
-        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=20,pady=4)
-        self.lbl_total=ctk.CTkLabel(painel,text="R$ 0,00",font=FONTE_TOTAL,text_color=COR_ACENTO); self.lbl_total.pack(pady=(0,2))
+        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=20,pady=2)
+        self.lbl_total=ctk.CTkLabel(painel,text="R$ 0,00",font=("Georgia",22,"bold"),text_color=COR_ACENTO); self.lbl_total.pack(pady=(0,0))
         ctk.CTkLabel(painel,text="TOTAL",font=("Courier New",10),text_color=COR_TEXTO_SUB).pack()
-        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=20,pady=4)
+        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=20,pady=2)
         f=ctk.CTkFrame(painel,fg_color="transparent"); f.pack(fill="x",padx=20,pady=2)
         ctk.CTkLabel(f,text="Itens:",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack(side="left")
         self.lbl_qtde_itens=ctk.CTkLabel(f,text="0",font=FONTE_LABEL,text_color=COR_TEXTO); self.lbl_qtde_itens.pack(side="right")
-        self.lbl_cliente_venda=ctk.CTkLabel(painel,text="👤 Sem cliente",font=FONTE_SMALL,text_color=COR_TEXTO_SUB); self.lbl_cliente_venda.pack(pady=(2,0))
+        self.lbl_cliente_venda=ctk.CTkLabel(painel,text="👤 Sem cliente",font=FONTE_SMALL,text_color=COR_TEXTO_SUB); self.lbl_cliente_venda.pack(pady=(1,0))
         ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=20,pady=4)
         ctk.CTkLabel(painel,text="Modo:",font=FONTE_SMALL,text_color=COR_TEXTO_SUB).pack()
         self.cmb_modo=ctk.CTkComboBox(painel,values=["NORMAL","ORÇAMENTO","CONSIGNAÇÃO","PRAZO"],font=FONTE_SMALL,fg_color=COR_CARD2,border_color=COR_BORDA2,text_color=COR_TEXTO,command=self._mudar_modo)
-        self.cmb_modo.set("NORMAL"); self.cmb_modo.pack(fill="x",padx=16,pady=(2,4))
+        self.cmb_modo.set("NORMAL"); self.cmb_modo.pack(fill="x",padx=16,pady=(1,2))
         for txt,cor,hover,cmd in [
             ("💳  RECEBER",   COR_SUCESSO, COR_SUCESSO2, self._receber),
             ("🏷️  Desconto",  COR_AVISO,   "#D97706",    self._aplicar_desconto),
@@ -246,15 +246,15 @@ class TelaCaixa(ctk.CTkFrame):
         ]:
             ctk.CTkButton(painel,text=txt,font=FONTE_BTN,fg_color=cor,hover_color=hover,text_color="white",height=38,corner_radius=8,command=cmd).pack(fill="x",padx=16,pady=2)
 
-        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=4)
+        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=2)
 
         # ── Produto Avulso (salgados, pães, etc sem código) ──
         ctk.CTkLabel(painel, text="🏷️ PRODUTO AVULSO",
                      font=("Courier New",9,"bold"),
-                     text_color=COR_ACENTO).pack(pady=(4,2))
+                     text_color=COR_ACENTO).pack(pady=(2,1))
 
         f_av = ctk.CTkFrame(painel, fg_color=COR_CARD2, corner_radius=8)
-        f_av.pack(fill="x", padx=16, pady=(0,4))
+        f_av.pack(fill="x", padx=16, pady=(0,2))
 
         self.ent_av_desc = ctk.CTkEntry(
             f_av, placeholder_text="Descrição (ex: Salgado)",
@@ -293,10 +293,10 @@ class TelaCaixa(ctk.CTkFrame):
             command=self._adicionar_avulso
         ).grid(row=0, column=2, sticky="ew")
 
-        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=4)
+        ctk.CTkFrame(painel,height=1,fg_color=COR_BORDA).pack(fill="x",padx=16,pady=2)
 
         f_rod = ctk.CTkFrame(painel, fg_color="transparent")
-        f_rod.pack(fill="x", padx=16, pady=2)
+        f_rod.pack(fill="x", padx=16, pady=(2,4))
         f_rod.grid_columnconfigure((0,1), weight=1)
         ctk.CTkButton(f_rod,text="💵 Sangria",font=FONTE_BTN_SM,
             fg_color="#6B7280",hover_color="#4B5563",text_color="white",

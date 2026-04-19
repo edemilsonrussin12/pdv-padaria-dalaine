@@ -63,11 +63,11 @@ class TelaProdutos(ctk.CTkFrame):
         self.ent_busca.bind("<Up>",         on_up_prod)
 
         for txt, cor, hover, cmd in [
-            ("➕ Novo",    COR_SUCESSO, COR_SUCESSO2, self._novo_produto),
-            ("✏️ Editar",  COR_ACENTO,  COR_ACENTO2,  self._editar_produto),
-            ("🗑️ Excluir", COR_PERIGO,  COR_PERIGO2,  self._excluir_produto),
+            ("➕ Novo Produto", COR_SUCESSO, COR_SUCESSO2, self._novo_produto),
+            ("✏️ Editar",       COR_ACENTO,  COR_ACENTO2,  self._editar_produto),
+            ("🗑️ Excluir",      COR_PERIGO,  COR_PERIGO2,  self._excluir_produto),
         ]:
-            ctk.CTkButton(bf, text=txt, font=FONTE_BTN, width=100,
+            ctk.CTkButton(bf, text=txt, font=FONTE_BTN, height=36,
                           fg_color=cor, hover_color=hover,
                           text_color="white", command=cmd).pack(side="left", padx=4)
 

@@ -81,6 +81,28 @@ def inicializar_banco():
         )
     """)
 
+    # Movimentação de Caixa (Despesas, Retiradas, Suprimento, Recolhimento)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacao_caixa (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            caixa_id    INTEGER REFERENCES caixa(id),
+            tipo        TEXT NOT NULL,  -- DESPESA, RETIRADA, SUPRIMENTO, RECOLHIMENTO, SANGRIA
+            descricao   TEXT DEFAULT '',
+            valor       REAL DEFAULT 0,
+            operador    TEXT DEFAULT '',
+            data_hora   TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
+    # Metas do dia
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS metas (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            data        TEXT NOT NULL,
+            meta_valor  REAL DEFAULT 0
+        )
+    """)
+
     # Vendas
     c.execute("""
         CREATE TABLE IF NOT EXISTS vendas (
@@ -372,6 +394,42 @@ def listar_vendas(data_ini=None, data_fim=None):
     conn.close()
     return rows
 
+
+# ── MOVIMENTAÇÃO DE CAIXA ────────────────────────────────────────────────────
+
+def registrar_movimentacao_caixa(caixa_id, tipo, descricao, valor, operador=""):
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO movimentacao_caixa (caixa_id, tipo, descricao, valor, operador)
+        VALUES (?,?,?,?,?)
+    """, (caixa_id, tipo, descricao, valor, operador))
+    conn.commit()
+    conn.close()
+
+def listar_movimentacoes_caixa(caixa_id):
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT * FROM movimentacao_caixa
+        WHERE caixa_id=? ORDER BY data_hora
+    """, (caixa_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_meta_dia(data=None):
+    from datetime import date
+    data = data or date.today().isoformat()
+    conn = get_conn()
+    row = conn.execute("SELECT meta_valor FROM metas WHERE data=?", (data,)).fetchone()
+    conn.close()
+    return row["meta_valor"] if row else 2000.0
+
+def set_meta_dia(valor, data=None):
+    from datetime import date
+    data = data or date.today().isoformat()
+    conn = get_conn()
+    conn.execute("INSERT OR REPLACE INTO metas (data, meta_valor) VALUES (?,?)", (data, valor))
+    conn.commit()
+    conn.close()
 
 def get_config(chave):
     conn = get_conn()
