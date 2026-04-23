@@ -953,7 +953,7 @@ class DialogoReceber(ctk.CTkToplevel):
     def __init__(self, master, total, callback):
         super().__init__(master)
         self.title("Finalizar Pagamento")
-        self.geometry("480x600")
+        self.geometry("480x640")
         self.configure(fg_color=COR_CARD)
         self.grab_set()
         self.resizable(False, False)
@@ -974,11 +974,16 @@ class DialogoReceber(ctk.CTkToplevel):
                      font=("Georgia", 20, "bold"),
                      text_color=COR_SUCESSO).pack(side="right", padx=16)
 
-        ctk.CTkLabel(self, text="Forma:", font=FONTE_SMALL,
+        # ── Frame principal para toda a seção de pagamento ──
+        scroll_main = ctk.CTkFrame(self, fg_color="transparent")
+        scroll_main.pack(fill="both", expand=True, padx=0, pady=(0,0))
+        scroll_main.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(scroll_main, text="Forma:", font=FONTE_SMALL,
                      text_color=COR_TEXTO_SUB).pack(anchor="w", padx=16, pady=(8,2))
         self.btns_forma = {}
-        grade_f = ctk.CTkFrame(self, fg_color="transparent")
-        grade_f.pack(fill="x", padx=16)
+        grade_f = ctk.CTkFrame(scroll_main, fg_color="transparent")
+        grade_f.pack(fill="x", padx=16, pady=(0,4))
         formas = [("Dinheiro","DINHEIRO"),("PIX","PIX"),
                   ("Cartao","CARTAO"),("Fiado","FIADO")]
         for i, (label, val) in enumerate(formas):
@@ -997,40 +1002,53 @@ class DialogoReceber(ctk.CTkToplevel):
                 except: pass
             self.btns_forma[val] = f
 
-        self.frame_cartao = ctk.CTkFrame(self, fg_color=COR_ACENTO_LIGHT,
+        # ── Frame de Cartão (inicialmente oculto) ──
+        self.frame_cartao = ctk.CTkFrame(scroll_main, fg_color=COR_ACENTO_LIGHT,
                                           corner_radius=8, border_width=1,
                                           border_color=COR_ACENTO)
+        self.frame_cartao.pack(fill="x", padx=16, pady=(0,4))
+        self.frame_cartao.pack_forget()  # Oculto inicialmente
+        
+        ctk.CTkLabel(self.frame_cartao, text="Tipo de Cartão:",
+                     font=FONTE_SMALL, text_color=COR_ACENTO).pack(anchor="w", padx=8, pady=(4,2))
+        
         self.btns_cartao = {}
         grade_c = ctk.CTkFrame(self.frame_cartao, fg_color="transparent")
-        grade_c.pack(padx=4, pady=4)
-        tipos = [("Debito","DEBITO"),("Credito","CREDITO"),
-                 ("Cred Parc","CREDITO PARCELADO"),
-                 ("Vale Alim","VALE ALIMENTACAO")]
+        grade_c.pack(padx=4, pady=(0,4), fill="x")
+        
+        tipos = [("🔴 Débito","DEBITO"),("🔵 Crédito","CREDITO"),
+                 ("💳 Crédito Parcelado","CREDITO PARCELADO"),
+                 ("🎫 Vale Alimentação","VALE ALIMENTACAO")]
         for i, (label, val) in enumerate(tipos):
             r, c = divmod(i, 2)
             btn = ctk.CTkButton(grade_c, text=label, font=("Courier New",10),
-                                width=100, height=28,
+                                width=100, height=32,
                                 fg_color=COR_CARD, hover_color=COR_ACENTO_LIGHT,
                                 text_color=COR_TEXTO, border_width=1,
                                 border_color=COR_BORDA2,
                                 command=lambda v=val: self._sel_cartao(v))
-            btn.grid(row=r, column=c, padx=2, pady=2)
+            btn.grid(row=r, column=c, padx=2, pady=2, sticky="ew")
+            grade_c.grid_columnconfigure(c, weight=1)
             self.btns_cartao[val] = btn
+        
         self.frame_parcelas = ctk.CTkFrame(self.frame_cartao, fg_color="transparent")
+        self.frame_parcelas.pack(fill="x", padx=8, pady=(4,8))
+        self.frame_parcelas.pack_forget()  # Oculto inicialmente
+        
         ctk.CTkLabel(self.frame_parcelas, text="Parcelas:",
-                     font=FONTE_SMALL, text_color=COR_ACENTO).pack(side="left", padx=(8,4))
+                     font=FONTE_SMALL, text_color=COR_ACENTO).pack(side="left", padx=(0,4))
         self.cmb_parcelas = ctk.CTkComboBox(
             self.frame_parcelas,
             values=["2x","3x","4x","5x","6x","7x","8x","9x","10x","11x","12x"],
             font=FONTE_LABEL, width=70,
             fg_color=COR_CARD, border_color=COR_BORDA2, text_color=COR_TEXTO)
         self.cmb_parcelas.set("2x")
-        self.cmb_parcelas.pack(side="left", padx=4, pady=4)
+        self.cmb_parcelas.pack(side="left", padx=4)
 
-        ctk.CTkLabel(self, text="Valor recebido (R$):", font=FONTE_SMALL,
+        ctk.CTkLabel(scroll_main, text="Valor recebido (R$):", font=FONTE_SMALL,
                      text_color=COR_TEXTO_SUB).pack(anchor="w", padx=16, pady=(8,2))
         self.ent_valor = ctk.CTkEntry(
-            self, font=("Georgia", 22), height=42, justify="center",
+            scroll_main, font=("Georgia", 22), height=42, justify="center",
             fg_color=COR_CARD2, border_color=COR_ACENTO,
             border_width=2, text_color=COR_TEXTO)
         self.ent_valor.pack(fill="x", padx=16, pady=(0,4))
@@ -1040,7 +1058,7 @@ class DialogoReceber(ctk.CTkToplevel):
         self.ent_valor.focus_set()
 
         # Botões rápidos de valor
-        grade_v = ctk.CTkFrame(self, fg_color="transparent")
+        grade_v = ctk.CTkFrame(scroll_main, fg_color="transparent")
         grade_v.pack(fill="x", padx=16, pady=(0,4))
         for i, v in enumerate([5, 10, 20, 50, 100, 200]):
             grade_v.grid_columnconfigure(i, weight=1)
@@ -1053,7 +1071,7 @@ class DialogoReceber(ctk.CTkToplevel):
                           ).grid(row=0, column=i, padx=1, sticky="ew")
 
         # Troco — destaque verde
-        self.frame_troco = ctk.CTkFrame(self, fg_color=COR_SUCESSO, corner_radius=8)
+        self.frame_troco = ctk.CTkFrame(scroll_main, fg_color=COR_SUCESSO, corner_radius=8)
         self.frame_troco.pack(fill="x", padx=16, pady=(0,4))
         f_troco_inner = ctk.CTkFrame(self.frame_troco, fg_color="transparent")
         f_troco_inner.pack(fill="x", padx=12, pady=8)
@@ -1064,13 +1082,13 @@ class DialogoReceber(ctk.CTkToplevel):
             font=("Georgia", 22, "bold"), text_color="white")
         self.lbl_troco.pack(side="right")
 
-        ctk.CTkButton(self, text="Valor Exato",
+        ctk.CTkButton(scroll_main, text="Valor Exato",
                       font=FONTE_SMALL, height=28,
                       fg_color=COR_ACENTO_LIGHT, hover_color=COR_BORDA,
                       text_color=COR_ACENTO, corner_radius=6,
                       command=self._valor_exato).pack(fill="x", padx=16, pady=(0,4))
 
-        f_misto = ctk.CTkFrame(self, fg_color=COR_CARD2, corner_radius=8)
+        f_misto = ctk.CTkFrame(scroll_main, fg_color=COR_CARD2, corner_radius=8)
         f_misto.pack(fill="x", padx=16, pady=(0,4))
         ctk.CTkButton(f_misto, text="+ Adicionar pagamento parcial",
                       font=FONTE_SMALL, height=28,
@@ -1080,10 +1098,12 @@ class DialogoReceber(ctk.CTkToplevel):
         self.lbl_pgtos = ctk.CTkLabel(f_misto, text="",
                                        font=FONTE_SMALL, text_color=COR_SUCESSO)
         self.lbl_pgtos.pack(anchor="w", padx=8)
+        self.lbl_pgtos.pack_forget()
         self.frame_lista_pgtos = ctk.CTkFrame(f_misto, fg_color="transparent")
         self.frame_lista_pgtos.pack(fill="x", padx=4, pady=(0,4))
+        self.frame_lista_pgtos.pack_forget()
 
-        fc = ctk.CTkFrame(self, fg_color="transparent")
+        fc = ctk.CTkFrame(scroll_main, fg_color="transparent")
         fc.pack(fill="x", padx=16, pady=(0,4))
         ctk.CTkLabel(fc, text="CPF:", font=FONTE_SMALL,
                      text_color=COR_TEXTO_SUB).pack(side="left")
@@ -1126,6 +1146,7 @@ class DialogoReceber(ctk.CTkToplevel):
                         border_color=cores.get(k, COR_ACENTO) if sel else COR_BORDA,
                         border_width=2 if sel else 1)
         if forma == "CARTAO":
+            # Mostra o frame de cartão
             self.frame_cartao.pack(fill="x", padx=16, pady=(0,4))
             # Pré-seleciona Débito automaticamente
             if not self.subcategoria_cartao:
@@ -1146,7 +1167,7 @@ class DialogoReceber(ctk.CTkToplevel):
                           border_width=2 if sel else 1,
                           text_color=COR_ACENTO if sel else COR_TEXTO)
         if tipo == "CREDITO PARCELADO":
-            self.frame_parcelas.pack(pady=(0,4))
+            self.frame_parcelas.pack(fill="x", padx=8, pady=(4,8))
         else:
             self.frame_parcelas.pack_forget()
 
@@ -1199,8 +1220,13 @@ class DialogoReceber(ctk.CTkToplevel):
             w.destroy()
         total_pgtos = sum(p["valor"] for p in self.pagamentos)
         if not self.pagamentos:
-            self.lbl_pgtos.configure(text="")
+            self.lbl_pgtos.pack_forget()
+            self.frame_lista_pgtos.pack_forget()
             return
+        if not self.lbl_pgtos.winfo_ismapped():
+            self.lbl_pgtos.pack(anchor="w", padx=8, pady=(4,0))
+        if not self.frame_lista_pgtos.winfo_ismapped():
+            self.frame_lista_pgtos.pack(fill="x", padx=4, pady=(0,4))
         self.lbl_pgtos.configure(
             text="Lancados: R$ " + str(round(total_pgtos,2)) + " | Falta: R$ " + str(max(0,round(self.total-total_pgtos,2))))
         for i, p in enumerate(self.pagamentos):
