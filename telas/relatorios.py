@@ -1,6 +1,7 @@
 """telas/relatorios.py — Relatórios Completos — Tema Branco"""
 import customtkinter as ctk
 import tkinter as tk
+import threading
 from datetime import datetime, timedelta, date
 from tema import *
 from banco.database import listar_vendas, get_conn
@@ -275,29 +276,36 @@ class TelaRelatorios(ctk.CTkFrame):
         from tkinter import messagebox
         messagebox.showinfo("Exportado", f"Relatório salvo em:\n{path}")
 
+    def _carregar_com_thread(self, ini, fim):
+        """Carrega vendas em thread separada para não travar a interface"""
+        def carregar():
+            try:
+                vendas = listar_vendas(ini, fim)
+                self._vendas_atuais = vendas
+                self.after(0, lambda: self._popular(vendas))
+            except Exception as e:
+                self.after(0, lambda: self._popular([]))
+        threading.Thread(target=carregar, daemon=True).start()
+
     def _carregar_hoje(self):
         hoje = datetime.now().strftime("%Y-%m-%d")
         self.ent_ini.delete(0,"end"); self.ent_ini.insert(0, date.today().strftime("%d/%m/%Y"))
         self.ent_fim.delete(0,"end"); self.ent_fim.insert(0, date.today().strftime("%d/%m/%Y"))
-        vendas = listar_vendas(hoje, hoje)
-        self._vendas_atuais = vendas
-        self._popular(vendas)
+        self._carregar_com_thread(hoje, hoje)
 
     def _carregar_7dias(self):
         ini = (datetime.now()-timedelta(days=7)).strftime("%Y-%m-%d")
         fim = datetime.now().strftime("%Y-%m-%d")
         self.ent_ini.delete(0,"end"); self.ent_ini.insert(0, (date.today()-timedelta(days=7)).strftime("%d/%m/%Y"))
         self.ent_fim.delete(0,"end"); self.ent_fim.insert(0, date.today().strftime("%d/%m/%Y"))
-        vendas = listar_vendas(ini, fim)
-        self._vendas_atuais = vendas
-        self._popular(vendas)
+        self._carregar_com_thread(ini, fim)
 
     def _carregar_30dias(self):
         ini = (datetime.now()-timedelta(days=30)).strftime("%Y-%m-%d")
         fim = datetime.now().strftime("%Y-%m-%d")
-        vendas = listar_vendas(ini, fim)
-        self._vendas_atuais = vendas
-        self._popular(vendas)
+        self.ent_ini.delete(0,"end"); self.ent_ini.insert(0, (date.today()-timedelta(days=30)).strftime("%d/%m/%Y"))
+        self.ent_fim.delete(0,"end"); self.ent_fim.insert(0, date.today().strftime("%d/%m/%Y"))
+        self._carregar_com_thread(ini, fim)
 
     def _carregar_personalizado(self):
         try:
@@ -307,6 +315,7 @@ class TelaRelatorios(ctk.CTkFrame):
             from tkinter import messagebox
             messagebox.showerror("Erro", "Data inválida! Use DD/MM/AAAA")
             return
+        self._carregar_com_thread(ini, fim)
         vendas = listar_vendas(ini, fim)
         self._vendas_atuais = vendas
         self._popular(vendas)
