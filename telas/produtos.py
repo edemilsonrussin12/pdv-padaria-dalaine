@@ -12,7 +12,8 @@ UNIDADES = ["UN","KG","G","L","ML","CX","PCT","DZ"]
 class TelaProdutos(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color=COR_FUNDO, corner_radius=0)
-        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=0)  # sidebar
+        self.grid_columnconfigure(1, weight=1)  # conteúdo
         self.grid_rowconfigure(1, weight=1)
         self.produto_selecionado = None
         self._build_header()
@@ -20,61 +21,59 @@ class TelaProdutos(ctk.CTkFrame):
         self._carregar_lista()
 
     def _build_header(self):
-        hdr = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=0,
-                           border_width=1, border_color=COR_BORDA, height=70)
-        hdr.grid(row=0, column=0, sticky="ew")
-        hdr.grid_propagate(False)
-        hdr.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(hdr, text="📦  Cadastro de Produtos",
-                     font=FONTE_TITULO, text_color=COR_ACENTO).grid(
-            row=0, column=0, padx=24, pady=18, sticky="w")
-
-        bf = ctk.CTkFrame(hdr, fg_color="transparent")
-        bf.grid(row=0, column=1, padx=24, sticky="e")
-
+        # ── Topbar ──────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=COR_ACENTO, corner_radius=0, height=48)
+        top.grid(row=0, column=0, columnspan=2, sticky="ew")
+        top.grid_propagate(False)
+        top.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(top, text="📦  Produtos",
+                     font=FONTE_TITULO, text_color="white").grid(
+            row=0, column=0, padx=16, pady=10, sticky="w")
         self.ent_busca = ctk.CTkEntry(
-            bf, width=280, font=FONTE_LABEL,
+            top, font=FONTE_LABEL,
             placeholder_text="Pesquisar...",
-            fg_color=COR_CARD2, border_color=COR_BORDA2, text_color=COR_TEXTO)
-        self.ent_busca.pack(side="left")
+            fg_color="white", border_color=COR_BORDA2,
+            text_color=COR_TEXTO)
+        self.ent_busca.grid(row=0, column=1, padx=8, pady=8, sticky="ew")
         self.idx_nav = -1
 
         def on_key_produtos(e):
-            if e.keysym in ("Up", "Down", "Return", "Escape"):
-                return "break"
+            if e.keysym in ("Up","Down","Return","Escape"): return "break"
             self._carregar_lista()
-
         def on_down_prod(e):
             if not self.linhas: return "break"
-            self.idx_nav = min((self.idx_nav + 1) if self.idx_nav >= 0 else 0,
-                               len(self.linhas) - 1)
-            self._selecionar(self.idx_nav)
-            return "break"
-
+            self.idx_nav = min((self.idx_nav+1) if self.idx_nav >= 0 else 0, len(self.linhas)-1)
+            self._selecionar(self.idx_nav); return "break"
         def on_up_prod(e):
             if not self.linhas: return "break"
-            self.idx_nav = max((self.idx_nav - 1) if self.idx_nav >= 0 else 0, 0)
-            self._selecionar(self.idx_nav)
-            return "break"
+            self.idx_nav = max((self.idx_nav-1) if self.idx_nav >= 0 else 0, 0)
+            self._selecionar(self.idx_nav); return "break"
 
         self.ent_busca.bind("<KeyRelease>", on_key_produtos)
         self.ent_busca.bind("<Down>",       on_down_prod)
         self.ent_busca.bind("<Up>",         on_up_prod)
 
+        # ── Sidebar lateral esquerda ──────────────────────────────
+        side = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=0,
+                            border_width=1, border_color=COR_BORDA, width=120)
+        side.grid(row=1, column=0, sticky="ns")
+        side.grid_propagate(False)
+
         for txt, cor, hover, cmd in [
-            ("➕ Novo Produto", COR_SUCESSO, COR_SUCESSO2, self._novo_produto),
-            ("✏️ Editar",       COR_ACENTO,  COR_ACENTO2,  self._editar_produto),
-            ("🗑️ Excluir",      COR_PERIGO,  COR_PERIGO2,  self._excluir_produto),
+            ("➕\nNovo",    COR_SUCESSO, COR_SUCESSO2, self._novo_produto),
+            ("✏️\nEditar",  COR_ACENTO,  COR_ACENTO2,  self._editar_produto),
+            ("🗑️\nExcluir", COR_PERIGO,  COR_PERIGO2,  self._excluir_produto),
         ]:
-            ctk.CTkButton(bf, text=txt, font=FONTE_BTN, height=36,
-                          fg_color=cor, hover_color=hover,
-                          text_color="white", command=cmd).pack(side="left", padx=4)
+            ctk.CTkButton(side, text=txt, font=FONTE_BTN_SM,
+                         fg_color=cor, hover_color=hover,
+                         text_color="white", height=70,
+                         corner_radius=0, anchor="center",
+                         command=cmd).pack(fill="x", pady=1)
 
     def _build_corpo(self):
         frame = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=12,
                              border_width=1, border_color=COR_BORDA)
-        frame.grid(row=1, column=0, padx=16, pady=16, sticky="nsew")
+        frame.grid(row=1, column=1, padx=8, pady=8, sticky="nsew")
         frame.grid_rowconfigure(1, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 

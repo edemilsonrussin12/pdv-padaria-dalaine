@@ -7,9 +7,10 @@ from banco.database import listar_produtos, movimentar_estoque, listar_movimenta
 class TelaEstoque(ctk.CTkFrame):
     def __init__(self,master):
         super().__init__(master,fg_color=COR_FUNDO,corner_radius=0)
-        self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(1,weight=1)
+        self.grid_columnconfigure(0, weight=0)  # sidebar
+        self.grid_columnconfigure(1, weight=1)  # conteúdo
+        self.grid_rowconfigure(1, weight=1)
         self.produto_selecionado=None
-        # Detecta resolução da tela para ajuste responsivo
         self.after(1, self._init_responsivo)
 
     def _init_responsivo(self):
@@ -36,46 +37,56 @@ class TelaEstoque(ctk.CTkFrame):
         return max(1, int(valor * self._escala))
 
     def _build_header(self):
-        hdr=ctk.CTkFrame(self,fg_color=COR_CARD,corner_radius=0,border_width=1,border_color=COR_BORDA,height=70)
-        hdr.grid(row=0,column=0,sticky="ew"); hdr.grid_propagate(False); hdr.grid_columnconfigure(1,weight=1)
-        ctk.CTkLabel(hdr,text="📊  Controle de Estoque",font=FONTE_TITULO,text_color=COR_ACENTO).grid(row=0,column=0,padx=24,pady=18,sticky="w")
-        bf=ctk.CTkFrame(hdr,fg_color="transparent"); bf.grid(row=0,column=1,padx=24,sticky="e")
-        self.ent_busca = ctk.CTkEntry(bf, width=self._s(200), font=FONTE_LABEL,
-                                      placeholder_text="Pesquisar...",
-                                      fg_color=COR_CARD2,
-                                      border_color=COR_BORDA2,
-                                      text_color=COR_TEXTO)
-        self.ent_busca.pack(side="left")
+        # ── Topbar ──────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=COR_ACENTO, corner_radius=0, height=48)
+        top.grid(row=0, column=0, columnspan=2, sticky="ew")
+        top.grid_propagate(False)
+        top.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(top, text="📊  Estoque",
+                     font=FONTE_TITULO, text_color="white").grid(
+            row=0, column=0, padx=16, pady=10, sticky="w")
+        self.ent_busca = ctk.CTkEntry(
+            top, font=FONTE_LABEL,
+            placeholder_text="Pesquisar...",
+            fg_color="white", border_color=COR_BORDA2,
+            text_color=COR_TEXTO)
+        self.ent_busca.grid(row=0, column=1, padx=8, pady=8, sticky="ew")
         self.idx_nav = -1
 
         def on_key_est(e):
             if e.keysym in ("Up","Down","Return","Escape"): return "break"
             self._carregar()
-
         def on_down_est(e):
             if not self.linhas: return "break"
             self.idx_nav = min(self.idx_nav+1, len(self.linhas)-1) if self.idx_nav >= 0 else 0
-            self._sel(self.idx_nav)
-            return "break"
-
+            self._sel(self.idx_nav); return "break"
         def on_up_est(e):
             if not self.linhas: return "break"
             self.idx_nav = max(self.idx_nav-1, 0) if self.idx_nav > 0 else 0
-            self._sel(self.idx_nav)
-            return "break"
+            self._sel(self.idx_nav); return "break"
 
         self.ent_busca.bind("<KeyRelease>", on_key_est)
         self.ent_busca.bind("<Down>",       on_down_est)
         self.ent_busca.bind("<Up>",         on_up_est)
-        fsize = self._s(11)
-        for txt,cor,hover,cmd in[
-            ("📥 Entrada",  COR_SUCESSO, COR_SUCESSO2, self._entrada),
-            ("📤 Saída",    COR_PERIGO,  COR_PERIGO2,  self._saida),
-            ("🔧 Ajuste",   COR_ACENTO,  COR_ACENTO2,  self._ajuste),
-            ("📋 Histórico","#6B7280",   "#4B5563",    self._historico),
-            ("📦 Produtos", "#1D4ED8",   "#1E40AF",    self._ver_produtos),
+
+        # ── Sidebar lateral esquerda ──────────────────────────────
+        side = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=0,
+                            border_width=1, border_color=COR_BORDA, width=120)
+        side.grid(row=1, column=0, sticky="ns")
+        side.grid_propagate(False)
+
+        for txt, cor, hover, cmd in [
+            ("📥\nEntrada",  COR_SUCESSO, COR_SUCESSO2, self._entrada),
+            ("📤\nSaída",    COR_PERIGO,  COR_PERIGO2,  self._saida),
+            ("🔧\nAjuste",   COR_ACENTO,  COR_ACENTO2,  self._ajuste),
+            ("📋\nHistórico","#6B7280",   "#4B5563",    self._historico),
+            ("📦\nProdutos", "#1D4ED8",   "#1E40AF",    self._ver_produtos),
         ]:
-            ctk.CTkButton(bf,text=txt,font=("Georgia",fsize,"bold"),fg_color=cor,hover_color=hover,text_color="white",command=cmd).pack(side="left",padx=2)
+            ctk.CTkButton(side, text=txt, font=FONTE_BTN_SM,
+                         fg_color=cor, hover_color=hover,
+                         text_color="white", height=70,
+                         corner_radius=0, anchor="center",
+                         command=cmd).pack(fill="x", pady=1)
 
     # Larguras fixas em pixels para cada coluna
     COLS_EST  = ["Produto","Unid","Grupo","Estoque Atual","Estoque Mín.","Situação"]
@@ -88,7 +99,7 @@ class TelaEstoque(ctk.CTkFrame):
     def _build_corpo(self):
         frame = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=12,
                              border_width=1, border_color=COR_BORDA)
-        frame.grid(row=1, column=0, padx=16, pady=16, sticky="nsew")
+        frame.grid(row=1, column=1, padx=self._s(8), pady=self._s(8), sticky="nsew")
         frame.grid_rowconfigure(1, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 

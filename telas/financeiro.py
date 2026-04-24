@@ -83,27 +83,43 @@ def listar_lancamentos(data_ini=None,data_fim=None):
 class TelaFinanceiro(ctk.CTkFrame):
     def __init__(self,master):
         super().__init__(master,fg_color=COR_FUNDO,corner_radius=0)
-        self.grid_columnconfigure(0,weight=1); self.grid_rowconfigure(2,weight=1)
+        self.grid_columnconfigure(0, weight=0)  # sidebar
+        self.grid_columnconfigure(1, weight=1)  # conteúdo
+        self.grid_rowconfigure(2, weight=1)
         inicializar_financeiro(); self._build_header(); self._build_cards(); self._build_tabela(); self._carregar_mes()
 
     def _build_header(self):
-        hdr=ctk.CTkFrame(self,fg_color=COR_CARD,corner_radius=0,border_width=1,border_color=COR_BORDA,height=70)
-        hdr.grid(row=0,column=0,sticky="ew"); hdr.grid_propagate(False); hdr.grid_columnconfigure(1,weight=1)
-        ctk.CTkLabel(hdr,text="Financeiro",font=FONTE_TITULO,text_color=COR_ACENTO).grid(row=0,column=0,padx=24,pady=18,sticky="w")
-        bf=ctk.CTkFrame(hdr,fg_color="transparent"); bf.grid(row=0,column=1,padx=24,sticky="e")
-        for txt,cor,hover,cmd in[
-            ("Receita",  COR_SUCESSO, COR_SUCESSO2, self._nova_receita),
-            ("Despesa",  COR_PERIGO,  COR_PERIGO2,  self._nova_despesa),
-            ("Hoje",     "#6B7280",   "#4B5563",    self._hoje),
-            ("Mes",      "#6B7280",   "#4B5563",    self._carregar_mes),
-            ("Ano",      "#6B7280",   "#4B5563",    self._ano),
-            ("Relatorios","#1D4ED8",  "#1E40AF",    self._ver_relatorios),
-            ("Recebimentos","#059669", "#047857",    self._ver_recebimentos),
+        # ── Topbar ──────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=COR_ACENTO, corner_radius=0, height=48)
+        top.grid(row=0, column=0, columnspan=2, sticky="ew")
+        top.grid_propagate(False)
+        ctk.CTkLabel(top, text="💰  Financeiro",
+                     font=FONTE_TITULO, text_color="white").grid(
+            row=0, column=0, padx=16, pady=10, sticky="w")
+
+        # ── Sidebar lateral esquerda ──────────────────────────────
+        side = ctk.CTkFrame(self, fg_color=COR_CARD, corner_radius=0,
+                            border_width=1, border_color=COR_BORDA, width=120)
+        side.grid(row=1, column=0, rowspan=2, sticky="ns")
+        side.grid_propagate(False)
+
+        for txt, cor, hover, cmd in [
+            ("💚\nReceita",      COR_SUCESSO, COR_SUCESSO2, self._nova_receita),
+            ("🔴\nDespesa",      COR_PERIGO,  COR_PERIGO2,  self._nova_despesa),
+            ("📅\nHoje",         "#6B7280",   "#4B5563",    self._hoje),
+            ("📆\nMês",          "#6B7280",   "#4B5563",    self._carregar_mes),
+            ("📊\nAno",          "#6B7280",   "#4B5563",    self._ano),
+            ("📈\nRelatórios",   "#1D4ED8",   "#1E40AF",    self._ver_relatorios),
+            ("📦\nRecebimentos", "#059669",   "#047857",    self._ver_recebimentos),
         ]:
-            ctk.CTkButton(bf,text=txt,font=FONTE_BTN,width=90,fg_color=cor,hover_color=hover,text_color="white",command=cmd).pack(side="left",padx=3)
+            ctk.CTkButton(side, text=txt, font=FONTE_BTN_SM,
+                         fg_color=cor, hover_color=hover,
+                         text_color="white", height=64,
+                         corner_radius=0, anchor="center",
+                         command=cmd).pack(fill="x", pady=1)
 
     def _build_cards(self):
-        f=ctk.CTkFrame(self,fg_color="transparent"); f.grid(row=1,column=0,padx=16,pady=(12,0),sticky="ew")
+        f=ctk.CTkFrame(self,fg_color="transparent"); f.grid(row=1,column=1,padx=16,pady=(12,0),sticky="ew")
         f.grid_columnconfigure((0,1,2,3),weight=1)
         self.c_rec=self._card(f,0,"Vendas PDV","R$ 0,00",COR_SUCESSO)
         self.c_des=self._card(f,1,"Despesas","R$ 0,00",COR_PERIGO)
@@ -118,7 +134,7 @@ class TelaFinanceiro(ctk.CTkFrame):
 
     def _build_tabela(self):
         frame=ctk.CTkFrame(self,fg_color=COR_CARD,corner_radius=12,border_width=1,border_color=COR_BORDA)
-        frame.grid(row=2,column=0,padx=16,pady=12,sticky="nsew")
+        frame.grid(row=2,column=1,padx=16,pady=12,sticky="nsew")
         frame.grid_rowconfigure(1,weight=1); frame.grid_columnconfigure(0,weight=1)
         cols=["Data","Tipo","Categoria","Descricao","Valor","Forma"]; pesos=[2,2,3,5,2,2]
         cab=ctk.CTkFrame(frame,fg_color=COR_ACENTO_LIGHT,corner_radius=8, height=40)
