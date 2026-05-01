@@ -9,14 +9,36 @@ from tema import *
 from banco.database import get_conn, caixa_aberto, fechar_caixa, get_config
 
 
+import re as _re
+
 def _grupo_forma(forma):
     f = forma.upper()
-    if "DINHEIRO" in f:                      return "DINHEIRO"
-    if "PIX"      in f:                      return "PIX"
-    if "VALE"     in f:                      return "VALE ALIMENTACAO"
-    if "CREDITO"  in f or "CRÉDITO" in f:   return "CREDITO"
-    if "DEBITO"   in f or "DÉBITO"  in f:   return "DEBITO"
+    if "DINHEIRO" in f:                    return "DINHEIRO"
+    if "PIX"      in f:                    return "PIX"
+    if "VALE"     in f:                    return "VALE ALIMENTACAO"
+    if "CREDITO"  in f or "CRÉDITO" in f: return "CREDITO"
+    if "DEBITO"   in f or "DÉBITO"  in f: return "DEBITO"
     return "OUTROS"
+
+def _extrair_grupos(forma, total):
+    """
+    Extrai grupos e valores de formas simples ou mistas.
+    Ex: 'DINHEIRO(R$150.0) + CARTAO - CREDITO(R$338.0)' -> {'DINHEIRO':150, 'CREDITO':338}
+    Ex: 'PIX' -> {'PIX': total}
+    """
+    resultado = {}
+    partes = _re.findall(r'([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇÀ\s\-]+)\(R\$([\d.,]+)\)', forma)
+    if partes:
+        for nome, val_str in partes:
+            try:
+                valor = float(val_str.replace(",","."))
+            except Exception:
+                valor = 0.0
+            g = _grupo_forma(nome.strip())
+            resultado[g] = resultado.get(g, 0.0) + valor
+    else:
+        resultado[_grupo_forma(forma)] = total
+    return resultado
 
 
 def get_resumo_caixa(caixa_id):
@@ -68,12 +90,16 @@ def get_resumo_caixa(caixa_id):
     retiradas    = sum(m["valor"] for m in movs if m["tipo"] in ("RETIRADA","SANGRIA","DESPESA"))
     recolhimento = sum(m["valor"] for m in movs if m["tipo"] == "RECOLHIMENTO")
     suprimento   = sum(m["valor"] for m in movs if m["tipo"] == "SUPRIMENTO")
-    total_dinheiro = sum(v["total"] for v in vendas if "DINHEIRO" in v["forma_pagamento"].upper())
+    total_dinheiro = sum(
+        _extrair_grupos(v["forma_pagamento"], v["total"]).get("DINHEIRO", 0.0)
+        for v in vendas
+    )
 
     grupos_venda = {}
     for v in vendas:
-        g = _grupo_forma(v["forma_pagamento"])
-        grupos_venda[g] = grupos_venda.get(g, 0.0) + v["total"]
+        partes = _extrair_grupos(v["forma_pagamento"], v["total"])
+        for g, val in partes.items():
+            grupos_venda[g] = grupos_venda.get(g, 0.0) + val
 
     return {
         "caixa":          dict(cx) if cx else {},
@@ -148,8 +174,19 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
     def _build_corpo(self):
         res     = get_resumo_caixa(self.caixa_id)
         val_ini = self.cx_dados.get("valor_inicial", 0)
-        saidas  = res["retiradas"] + res["recolhimento"]
-        self.saldo_esperado = val_ini + res["total_dinheiro"] + res["suprimento"] - saidas
+        movs    = res["movimentacoes"]
+
+        # Só afetam o dinheiro físico: retiradas/despesas e recolhimentos NÃO eletrônicos
+        FORMAS_ELETR = {"PIX","CREDITO","DEBITO","VALE ALIMENTACAO","OUTROS"}
+        saidas_dinheiro = sum(
+            m["valor"] for m in movs
+            if m["tipo"] in ("RETIRADA","SANGRIA","DESPESA")
+        ) + sum(
+            m["valor"] for m in movs
+            if m["tipo"] == "RECOLHIMENTO"
+            and (m.get("motivo","") or "").upper() not in FORMAS_ELETR
+        )
+        self.saldo_esperado = val_ini + res["total_dinheiro"] + res["suprimento"] - saidas_dinheiro
         self._res_atual = res
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
@@ -168,10 +205,16 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
         # ── MOV. CAIXA - RETIRADA
         movs     = res["movimentacoes"]
         movs_ret = [m for m in movs if m["tipo"] in ("RETIRADA","SANGRIA","DESPESA")]
-        movs_rec = [m for m in movs if m["tipo"] == "RECOLHIMENTO"]
+        FORMAS_ELETR = {"PIX","CREDITO","DEBITO","VALE ALIMENTACAO","OUTROS"}
+        movs_rec_din = [m for m in movs
+                        if m["tipo"] == "RECOLHIMENTO"
+                        and (m.get("motivo","") or "").upper() not in FORMAS_ELETR]
+        movs_rec_form = [m for m in movs
+                         if m["tipo"] == "RECOLHIMENTO"
+                         and (m.get("motivo","") or "").upper() in FORMAS_ELETR]
         movs_sup = [m for m in movs if m["tipo"] == "SUPRIMENTO"]
 
-        if movs_ret or movs_rec:
+        if movs_ret or movs_rec_din:
             r = self._secao(scroll, r, "MOV. CAIXA - RETIRADA")
             total_ret = 0.0
             for m in movs_ret:
@@ -180,13 +223,25 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                     m.get("usuario","") or "—",
                     f"-R$ {m['valor']:.2f}", COR_PERIGO)
                 total_ret -= m["valor"]
-            for m in movs_rec:
+            for m in movs_rec_din:
                 r = self._linha(scroll, r, m["data_hora"][:16],
                     m.get("motivo","") or "RECOLHIMENTO",
                     m.get("usuario","") or "—",
                     f"-R$ {m['valor']:.2f}", "#6B7280")
                 total_ret -= m["valor"]
             r = self._subtotal(scroll, r, total_ret)
+
+        # Recolhimentos de outras formas (cartão, pix, etc) ficam separados
+        if movs_rec_form:
+            r = self._secao(scroll, r, "RECOLHIMENTO - FORMAS DE PAGAMENTO")
+            total_rec_form = 0.0
+            for m in movs_rec_form:
+                r = self._linha(scroll, r, m["data_hora"][:16],
+                    m.get("motivo","") or "RECOLHIMENTO",
+                    m.get("usuario","") or "—",
+                    f"-R$ {m['valor']:.2f}", "#1D4ED8")
+                total_rec_form -= m["valor"]
+            r = self._subtotal(scroll, r, total_rec_form)
 
         if movs_sup:
             r = self._secao(scroll, r, "SUPRIMENTO")
@@ -214,6 +269,7 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
         r = self._tabela_resumo(scroll, r, res, val_ini)
 
         # ── DAR BAIXA
+        movs_rec = movs_rec_din + movs_rec_form
         ja_recolhidos = {(m.get("motivo","") or "").upper() for m in movs_rec}
         formas_pendentes = {
             g: v for g, v in res["grupos_venda"].items()
@@ -291,17 +347,20 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
         cab.pack(fill="x")
         cab.pack_propagate(False)
         ctk.CTkLabel(cab, text="", width=200, anchor="w").pack(side="left", padx=8)
-        for txt in ["Entradas", "Saídas"]:
-            ctk.CTkLabel(cab, text=txt, font=("Courier New",12,"bold"),
-                         text_color="white", width=120, anchor="e").pack(
-                side="right", padx=8, pady=4)
+        ctk.CTkLabel(cab, text="Entradas", font=("Courier New",12,"bold"),
+                     text_color="white", width=120, anchor="e").pack(side="left", padx=4, pady=4, expand=True)
+        ctk.CTkLabel(cab, text="Saídas", font=("Courier New",12,"bold"),
+                     text_color="white", width=120, anchor="e").pack(side="right", padx=8, pady=4)
 
         # Saídas por grupo
         movs = res["movimentacoes"]
+        FORMAS_ELETR_R = {"PIX","CREDITO","DEBITO","VALE ALIMENTACAO","OUTROS"}
         saidas_grupo = {}
         for m in movs:
             if m["tipo"] == "RECOLHIMENTO":
-                g = (m.get("motivo","") or "").upper() or "DINHEIRO"
+                motivo = (m.get("motivo","") or "").upper()
+                # recolhimento eletrônico vai para sua forma, senão vai para DINHEIRO
+                g = motivo if motivo in FORMAS_ELETR_R else "DINHEIRO"
                 saidas_grupo[g] = saidas_grupo.get(g, 0) + m["valor"]
             elif m["tipo"] in ("RETIRADA","SANGRIA","DESPESA"):
                 saidas_grupo["DINHEIRO"] = saidas_grupo.get("DINHEIRO", 0) + m["valor"]
@@ -321,13 +380,13 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
             ctk.CTkLabel(lf, text=nome, font=("Courier New",11),
                          text_color=COR_TEXTO, width=200, anchor="w").pack(
                 side="left", padx=12, pady=3)
+            ctk.CTkLabel(lf, text=f"{ent:.2f}",
+                         font=("Courier New",11), text_color=COR_SUCESSO,
+                         width=120, anchor="e").pack(side="left", padx=4, pady=3, expand=True)
             ctk.CTkLabel(lf, text=f"{sai:.2f}",
                          font=("Courier New",11),
                          text_color=COR_PERIGO if sai > 0 else COR_TEXTO_SUB,
                          width=120, anchor="e").pack(side="right", padx=8, pady=3)
-            ctk.CTkLabel(lf, text=f"{ent:.2f}",
-                         font=("Courier New",11), text_color=COR_SUCESSO,
-                         width=120, anchor="e").pack(side="right", padx=4, pady=3)
             if nome != "INICIO":
                 total_ent += ent
                 total_sai += sai
@@ -339,13 +398,13 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
         ctk.CTkLabel(tf, text="Totais", font=("Courier New",12,"bold"),
                      text_color=COR_ACENTO, width=200, anchor="w").pack(
             side="left", padx=12, pady=4)
+        ctk.CTkLabel(tf, text=f"{total_ent:.2f}",
+                     font=("Courier New",12,"bold"), text_color=COR_SUCESSO,
+                     width=120, anchor="e").pack(side="left", padx=4, pady=4, expand=True)
         ctk.CTkLabel(tf, text=f"{total_sai:.2f}",
                      font=("Courier New",12,"bold"),
                      text_color=COR_PERIGO if total_sai > 0 else COR_TEXTO_SUB,
                      width=120, anchor="e").pack(side="right", padx=8, pady=4)
-        ctk.CTkLabel(tf, text=f"{total_ent:.2f}",
-                     font=("Courier New",12,"bold"), text_color=COR_SUCESSO,
-                     width=120, anchor="e").pack(side="right", padx=4, pady=4)
 
         return row + 1
 
@@ -533,7 +592,7 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
 
     # ── PDF MODELO ECCUS ──────────────────────────────────────────────────────
     def _gerar_pdf(self, res, valor_final, fechando=False):
-        import os, sys
+        import os, sys, base64
         try:
             base  = os.path.dirname(sys.executable) if getattr(sys,"frozen",False) \
                     else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -545,44 +604,74 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.units import cm
             from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-                                            Table, TableStyle, HRFlowable)
+                                            Table, TableStyle, HRFlowable, Image)
             from reportlab.lib.styles import ParagraphStyle
             from reportlab.lib import colors
             from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+            from reportlab.pdfgen import canvas as pdfcanvas
 
-            doc   = SimpleDocTemplate(path, pagesize=A4,
-                                      topMargin=1.5*cm, bottomMargin=1.5*cm,
-                                      leftMargin=2*cm,  rightMargin=2*cm)
-            story = []
-
-            COR_PDF   = colors.HexColor("#B45309")
-            COR_CINZA = colors.HexColor("#F3F4F6")
+            COR_PDF   = colors.HexColor("#8B1A1A")
+            COR_CINZA = colors.HexColor("#F5F0E8")
             COR_VERDE = colors.HexColor("#059669")
             COR_VERM  = colors.HexColor("#DC2626")
+            COR_SEC   = colors.HexColor("#B45309")
+            COR_SEC_BG= colors.HexColor("#FEF3C7")
 
-            empresa  = get_config("empresa_nome")     or "Padaria"
+            empresa  = get_config("empresa_nome")     or "Padaria Da Laine"
             endereco = get_config("empresa_endereco") or ""
             cnpj     = get_config("empresa_cnpj")     or ""
             fone     = get_config("empresa_fone")     or ""
             val_ini  = self.cx_dados.get("valor_inicial", 0)
 
+            # Caminho do logo
+            base_dir = os.path.dirname(sys.executable) if getattr(sys,"frozen",False) \
+                       else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            logo_path = os.path.join(base_dir, "logo.png")
+            if not os.path.exists(logo_path):
+                logo_path = os.path.join(base_dir, "assets", "logo.png")
+            tem_logo = os.path.exists(logo_path)
+
+            # Marca dagua — callback para cada pagina
+            def marca_dagua(canvas_obj, doc_obj):
+                if not tem_logo: return
+                canvas_obj.saveState()
+                try:
+                    from PIL import Image as PILImage
+                    pw, ph = A4
+                    canvas_obj.setFillAlpha(0.06)
+                    canvas_obj.drawImage(logo_path,
+                        pw/2 - 6*cm, ph/2 - 6*cm,
+                        width=12*cm, height=12*cm,
+                        preserveAspectRatio=True, mask="auto")
+                except Exception:
+                    pass
+                canvas_obj.restoreState()
+
+            doc = SimpleDocTemplate(path, pagesize=A4,
+                                    topMargin=1.8*cm, bottomMargin=1.8*cm,
+                                    leftMargin=2*cm,  rightMargin=2*cm)
+            story = []
+
             T = lambda txt, size=10, bold=False, cor=colors.black, align=TA_LEFT: \
                 Paragraph(txt, ParagraphStyle("x", fontSize=size,
                           fontName="Helvetica-Bold" if bold else "Helvetica",
-                          textColor=cor, alignment=align, spaceAfter=2))
+                          textColor=cor, alignment=align, spaceAfter=2,
+                          leading=size*1.4))
 
             COL_W = [3.5*cm, 7*cm, 2.5*cm, 4*cm]
 
-            def secao(titulo):
-                story.append(Spacer(1, 0.2*cm))
+            def secao(titulo, cor_bg="#B45309", cor_txt="white"):
+                story.append(Spacer(1, 0.25*cm))
                 story.append(Table([[titulo]], colWidths=[17*cm],
                     style=TableStyle([
-                        ("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#E5E7EB")),
+                        ("BACKGROUND",(0,0),(-1,-1), colors.HexColor(cor_bg)),
+                        ("TEXTCOLOR",(0,0),(-1,-1), colors.HexColor(cor_txt) if cor_txt != "white" else colors.white),
                         ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
-                        ("FONTSIZE",(0,0),(-1,-1),9),
-                        ("TOPPADDING",(0,0),(-1,-1),4),
-                        ("BOTTOMPADDING",(0,0),(-1,-1),4),
-                        ("LEFTPADDING",(0,0),(-1,-1),8),
+                        ("FONTSIZE",(0,0),(-1,-1),10),
+                        ("TOPPADDING",(0,0),(-1,-1),5),
+                        ("BOTTOMPADDING",(0,0),(-1,-1),5),
+                        ("LEFTPADDING",(0,0),(-1,-1),10),
+                        ("ROUNDEDCORNERS",(0,0),(-1,-1),2),
                     ])))
 
             def cab_tab():
@@ -591,54 +680,103 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                     style=TableStyle([
                         ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
                         ("FONTSIZE",(0,0),(-1,-1),8),
-                        ("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#E5E7EB")),
+                        ("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#FEF3C7")),
+                        ("TEXTCOLOR",(0,0),(-1,-1), colors.HexColor("#92400E")),
                         ("ALIGN",(3,0),(3,-1),"RIGHT"),
-                        ("TOPPADDING",(0,0),(-1,-1),3),
-                        ("BOTTOMPADDING",(0,0),(-1,-1),3),
-                        ("LEFTPADDING",(0,0),(-1,-1),4),
+                        ("TOPPADDING",(0,0),(-1,-1),4),
+                        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+                        ("LEFTPADDING",(0,0),(-1,-1),6),
+                        ("LINEBELOW",(0,0),(-1,-1),1, colors.HexColor("#B45309")),
                     ])))
 
-            def linhas_tab(linhas):
+            def linhas_tab(linhas, cor_valor=None):
                 if not linhas: return
                 t = Table(linhas, colWidths=COL_W)
-                t.setStyle(TableStyle([
+                style = [
                     ("FONTNAME",(0,0),(-1,-1),"Helvetica"),
-                    ("FONTSIZE",(0,0),(-1,-1),8),
+                    ("FONTSIZE",(0,0),(-1,-1),9),
                     ("ROWBACKGROUNDS",(0,0),(-1,-1),[colors.white, COR_CINZA]),
                     ("ALIGN",(3,0),(3,-1),"RIGHT"),
-                    ("TOPPADDING",(0,0),(-1,-1),3),
-                    ("BOTTOMPADDING",(0,0),(-1,-1),3),
-                    ("LEFTPADDING",(0,0),(-1,-1),4),
-                ]))
+                    ("TOPPADDING",(0,0),(-1,-1),5),
+                    ("BOTTOMPADDING",(0,0),(-1,-1),5),
+                    ("LEFTPADDING",(0,0),(-1,-1),6),
+                    ("LINEBELOW",(0,-1),(-1,-1),0.5, colors.HexColor("#E5E7EB")),
+                ]
+                if cor_valor:
+                    for i in range(len(linhas)):
+                        style.append(("TEXTCOLOR",(3,i),(3,i), cor_valor))
+                        style.append(("FONTNAME",(3,i),(3,i),"Helvetica-Bold"))
+                t.setStyle(TableStyle(style))
                 story.append(t)
 
             def subtotal(valor):
                 cor_s = COR_VERDE if valor >= 0 else COR_VERM
-                story.append(Table([[f"Sub-Total: R$ {valor:.2f}"]], colWidths=[17*cm],
+                sinal = "+" if valor >= 0 else ""
+                story.append(Table([[f"Sub-Total: {sinal}R$ {valor:.2f}"]], colWidths=[17*cm],
                     style=TableStyle([
                         ("ALIGN",(0,0),(-1,-1),"RIGHT"),
                         ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
-                        ("FONTSIZE",(0,0),(-1,-1),9),
+                        ("FONTSIZE",(0,0),(-1,-1),10),
                         ("TEXTCOLOR",(0,0),(-1,-1), cor_s),
-                        ("TOPPADDING",(0,0),(-1,-1),2),
-                        ("BOTTOMPADDING",(0,0),(-1,-1),2),
-                        ("RIGHTPADDING",(0,0),(-1,-1),8),
+                        ("TOPPADDING",(0,0),(-1,-1),4),
+                        ("BOTTOMPADDING",(0,0),(-1,-1),4),
+                        ("RIGHTPADDING",(0,0),(-1,-1),10),
+                        ("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#F9FAFB")),
+                        ("LINEABOVE",(0,0),(-1,-1),1, colors.HexColor("#E5E7EB")),
                     ])))
+                story.append(Spacer(1, 0.1*cm))
 
-            # Cabeçalho PDF
-            story.append(T(empresa.upper(), 14, True, COR_PDF, TA_CENTER))
-            if endereco: story.append(T(endereco, 9, align=TA_CENTER))
-            if cnpj:     story.append(T(f"CNPJ: {cnpj}    Fone: {fone}", 9, align=TA_CENTER))
-            story.append(Spacer(1, 0.2*cm))
-            story.append(T("PRE FECHAMENTO DE CAIXA", 13, True, align=TA_CENTER))
+            # Cabeçalho PDF com logo
             ab = self.cx_dados.get("data_abertura","")[:16]
+
+            if tem_logo:
+                try:
+                    logo_img = Image(logo_path, width=3.5*cm, height=3.5*cm)
+                    info_txt = f"""<b><font size=16 color="#8B1A1A">{empresa.upper()}</font></b><br/>
+<font size=9 color="#6B7280">{endereco}</font><br/>
+<font size=9 color="#6B7280">CNPJ: {cnpj}   Fone: {fone}</font>"""
+                    cab_data = [[logo_img,
+                                 Paragraph(info_txt, ParagraphStyle("cab",
+                                     alignment=TA_LEFT, leading=14, spaceAfter=0))]]
+                    logo_tab = Table(cab_data, colWidths=[4*cm, 13*cm])
+                    logo_tab.setStyle(TableStyle([
+                        ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                        ("LEFTPADDING",(0,0),(-1,-1),0),
+                        ("RIGHTPADDING",(0,0),(-1,-1),0),
+                        ("TOPPADDING",(0,0),(-1,-1),0),
+                        ("BOTTOMPADDING",(0,0),(-1,-1),0),
+                    ]))
+                    story.append(logo_tab)
+                except Exception:
+                    story.append(T(empresa.upper(), 16, True, COR_PDF, TA_CENTER))
+            else:
+                story.append(T(empresa.upper(), 16, True, COR_PDF, TA_CENTER))
+                if endereco: story.append(T(endereco, 9, align=TA_CENTER))
+                if cnpj:     story.append(T(f"CNPJ: {cnpj}   Fone: {fone}", 9, align=TA_CENTER))
+
+            story.append(Spacer(1, 0.3*cm))
+            story.append(HRFlowable(width="100%", thickness=2, color=COR_PDF))
+            story.append(Spacer(1, 0.15*cm))
+
+            # Titulo
+            titulo_data = [["PRÉ FECHAMENTO DE CAIXA"]]
+            titulo_tab  = Table(titulo_data, colWidths=[17*cm])
+            titulo_tab.setStyle(TableStyle([
+                ("BACKGROUND",(0,0),(-1,-1), colors.HexColor("#8B1A1A")),
+                ("TEXTCOLOR",(0,0),(-1,-1), colors.white),
+                ("FONTNAME",(0,0),(-1,-1),"Helvetica-Bold"),
+                ("FONTSIZE",(0,0),(-1,-1),13),
+                ("ALIGN",(0,0),(-1,-1),"CENTER"),
+                ("TOPPADDING",(0,0),(-1,-1),7),
+                ("BOTTOMPADDING",(0,0),(-1,-1),7),
+            ]))
+            story.append(titulo_tab)
             story.append(T(f"Caixa #{self.caixa_id}    Aberto: {ab}    Operador: {self.usuario}",
                            9, align=TA_CENTER))
-            story.append(HRFlowable(width="100%", thickness=1.5, color=COR_PDF))
-            story.append(Spacer(1, 0.2*cm))
+            story.append(Spacer(1, 0.3*cm))
 
             # ANTERIOR - CAIXA
-            secao("ANTERIOR - CAIXA")
+            secao("ANTERIOR - CAIXA", "#92400E")
             cab_tab()
             linhas_tab([[ab, "VALOR INICIADO CAIXA", self.usuario, f"R$ {val_ini:.2f}"]])
             subtotal(val_ini)
@@ -650,7 +788,7 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
             movs_sup = [m for m in movs if m["tipo"] == "SUPRIMENTO"]
 
             if movs_ret or movs_rec:
-                secao("MOV. CAIXA - RETIRADA")
+                secao("MOV. CAIXA - RETIRADA", "#DC2626")
                 cab_tab()
                 rows_ret = []
                 total_ret = 0.0
@@ -670,7 +808,7 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                 subtotal(total_ret)
 
             if movs_sup:
-                secao("SUPRIMENTO")
+                secao("SUPRIMENTO", "#059669")
                 cab_tab()
                 rows_sup = []
                 total_sup = 0.0
@@ -684,7 +822,7 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
                 subtotal(total_sup)
 
             # VENDAS
-            secao("VENDAS")
+            secao("VENDAS", "#1D4ED8")
             cab_tab()
             rows_vend = []
             total_vend = 0.0
@@ -696,10 +834,12 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
             subtotal(total_vend)
 
             # RESUMO
-            secao("RESUMO")
+            secao("RESUMO", "#374151")
+            FORMAS_ELETR_P = {"PIX","CREDITO","DEBITO","VALE ALIMENTACAO","OUTROS"}
             saidas_grupo = {}
             for m in movs_rec:
-                g = (m.get("motivo","") or "").upper() or "DINHEIRO"
+                motivo = (m.get("motivo","") or "").upper()
+                g = motivo if motivo in FORMAS_ELETR_P else "DINHEIRO"
                 saidas_grupo[g] = saidas_grupo.get(g, 0) + m["valor"]
             for m in movs_ret:
                 saidas_grupo["DINHEIRO"] = saidas_grupo.get("DINHEIRO", 0) + m["valor"]
