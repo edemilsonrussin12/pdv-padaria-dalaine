@@ -7,6 +7,11 @@ from tkinter import messagebox
 from datetime import datetime
 from tema import *
 from banco.database import get_conn, caixa_aberto, fechar_caixa, get_config
+try:
+    from sangria import DialogoMovimentacao as _DlgMov, registrar_movimentacao as _RegMov
+except Exception:
+    _DlgMov = None
+    _RegMov = None
 
 
 import re as _re
@@ -447,16 +452,18 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
 
     def _confirmar_baixa(self):
         import importlib.util, os, sys
-        try:
-            base    = os.path.dirname(os.path.abspath(__file__))
-            caminho = os.path.join(base, "sangria.py")
-            spec    = importlib.util.spec_from_file_location("sangria", caminho)
-            mod     = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            registrar = mod.registrar_movimentacao
-        except Exception as e:
-            messagebox.showerror("Erro", f"Nao foi possivel registrar:\n{e}")
-            return
+        registrar = _RegMov
+        if registrar is None:
+            try:
+                base     = os.path.dirname(os.path.abspath(__file__))
+                caminho  = os.path.join(base, "sangria.py")
+                spec     = importlib.util.spec_from_file_location("sangria", caminho)
+                mod      = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                registrar = mod.registrar_movimentacao
+            except Exception as e:
+                messagebox.showerror("Erro", f"Nao foi possivel registrar:\n{e}")
+                return
 
         selecionadas = [(g, v) for g, (var, v) in self._checks_baixa.items() if var.get()]
         if not selecionadas:
@@ -578,17 +585,19 @@ class TelaFechamentoCaixa(ctk.CTkFrame):
     # ── MOVIMENTAÇÃO RÁPIDA ───────────────────────────────────────────────────
     def _nova_movimentacao(self, tipo):
         import importlib.util, os, sys
-        try:
-            base    = os.path.dirname(os.path.abspath(__file__))
-            caminho = os.path.join(base, "sangria.py")
-            spec    = importlib.util.spec_from_file_location("sangria", caminho)
-            mod     = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            DialogoMovimentacao = mod.DialogoMovimentacao
-        except Exception as e:
-            messagebox.showerror("Erro", f"Nao foi possivel abrir movimentacao:\n{e}")
-            return
-        DialogoMovimentacao(self, tipo, self.caixa_id, self.usuario, self._recarregar)
+        DlgMov = _DlgMov
+        if DlgMov is None:
+            try:
+                base    = os.path.dirname(os.path.abspath(__file__))
+                caminho = os.path.join(base, "sangria.py")
+                spec    = importlib.util.spec_from_file_location("sangria", caminho)
+                mod     = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                DlgMov  = mod.DialogoMovimentacao
+            except Exception as e:
+                messagebox.showerror("Erro", f"Nao foi possivel abrir movimentacao:\n{e}")
+                return
+        DlgMov(self, tipo, self.caixa_id, self.usuario, self._recarregar)
 
     # ── PDF MODELO ECCUS ──────────────────────────────────────────────────────
     def _gerar_pdf(self, res, valor_final, fechando=False):
