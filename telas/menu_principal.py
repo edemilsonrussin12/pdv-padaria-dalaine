@@ -28,12 +28,14 @@ class TelaMenuPrincipal(ctk.CTkFrame):
 
     def _atualizar_saudacao(self):
         """Atualiza o label de saudação a cada 60s"""
-        if hasattr(self, "_lbl_saudacao"):
-            try:
-                self._lbl_saudacao.configure(text=self._get_saudacao())
-            except Exception:
+        try:
+            if not self.winfo_exists():
                 return
-        self.after(60_000, self._atualizar_saudacao)
+            if hasattr(self, "_lbl_saudacao") and self._lbl_saudacao.winfo_exists():
+                self._lbl_saudacao.configure(text=self._get_saudacao())
+            self.after(60_000, self._atualizar_saudacao)
+        except Exception:
+            return
 
     def _build(self):
         self._desenhar_marca_dagua()

@@ -18,18 +18,45 @@ for w in WIDS:
     _x += w
 
 
+def _cancelar_venda_db(venda_id):
+    """Marca a venda como CANCELADA no banco."""
+    conn = get_conn()
+    conn.execute("UPDATE vendas SET status='CANCELADA' WHERE id=?", (venda_id,))
+    conn.commit()
+    conn.close()
+
+
+def _listar_vendas_ativas(data_ini=None, data_fim=None):
+    """Lista só vendas CONCLUIDAS (exclui canceladas)."""
+    conn = get_conn()
+    q = "SELECT * FROM vendas WHERE status='CONCLUIDA'"
+    p = []
+    if data_ini:
+        q += " AND date(data_hora) >= ?"
+        p.append(data_ini)
+    if data_fim:
+        q += " AND date(data_hora) <= ?"
+        p.append(data_fim)
+    q += " ORDER BY data_hora DESC"
+    rows = conn.execute(q, p).fetchall()
+    conn.close()
+    return rows
+
+
 class TelaRelatorios(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color=COR_FUNDO, corner_radius=0)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        self._vendas_atuais   = []
+        self._vendas_atuais    = []
         self._vendas_filtradas = []
         self._idx_selecionado  = -1
         self._filtro_forma     = "TODAS"
         self._pagina_atual     = 0
         self._POR_PAGINA       = 25
+        self._ini_atual        = None
+        self._fim_atual        = None
 
         self._build_header()
         self._build_corpo()
@@ -44,7 +71,6 @@ class TelaRelatorios(ctk.CTkFrame):
         hdr.grid_propagate(False)
         hdr.grid_columnconfigure(0, weight=1)
 
-        # Linha 1: título + filtros de data
         linha1 = ctk.CTkFrame(hdr, fg_color="transparent")
         linha1.grid(row=0, column=0, sticky="ew", padx=16, pady=(8, 2))
         linha1.grid_columnconfigure(1, weight=1)
@@ -88,7 +114,6 @@ class TelaRelatorios(ctk.CTkFrame):
                       fg_color="#B45309", hover_color="#92400E",
                       text_color="white", command=self._exportar_pdf).pack(side="left", padx=3)
 
-        # Linha 2: filtros por forma de pagamento
         linha2 = ctk.CTkFrame(hdr, fg_color="transparent")
         linha2.grid(row=1, column=0, sticky="ew", padx=16, pady=(2, 8))
 
@@ -115,6 +140,15 @@ class TelaRelatorios(ctk.CTkFrame):
             btn.pack(side="left", padx=3)
             self._btns_forma[val] = (btn, cor)
 
+        # Botão cancelar venda — fica oculto até selecionar uma linha
+        self._btn_cancelar = ctk.CTkButton(
+            linha2, text="🚫 Cancelar Venda", font=FONTE_BTN_SM,
+            height=28, width=130,
+            fg_color=COR_PERIGO, hover_color=COR_PERIGO2,
+            text_color="white",
+            command=self._cancelar_venda_selecionada)
+        # não faz pack ainda — aparece só quando há seleção
+
     # ── CORPO ─────────────────────────────────────────────────────────────────
 
     def _build_corpo(self):
@@ -123,7 +157,6 @@ class TelaRelatorios(ctk.CTkFrame):
         corpo.grid_columnconfigure(0, weight=1)
         corpo.grid_rowconfigure(1, weight=1)
 
-        # Cards KPI
         cards = ctk.CTkFrame(corpo, fg_color="transparent")
         cards.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         cards.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
@@ -134,14 +167,12 @@ class TelaRelatorios(ctk.CTkFrame):
         self.card_dinheiro = self._card(cards, 3, "💵 Dinheiro",     "R$ 0,00", "#8B5CF6")
         self.card_pix      = self._card(cards, 4, "📱 PIX",          "R$ 0,00", "#0891B2")
 
-        # Frame da tabela
         frame = ctk.CTkFrame(corpo, fg_color=COR_CARD, corner_radius=12,
                              border_width=1, border_color=COR_BORDA)
         frame.grid(row=1, column=0, sticky="nsew")
         frame.grid_rowconfigure(1, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 
-        # Cabeçalho da tabela
         cab = ctk.CTkFrame(frame, fg_color=COR_ACENTO_LIGHT,
                            corner_radius=8, height=36)
         cab.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 0))
@@ -151,31 +182,23 @@ class TelaRelatorios(ctk.CTkFrame):
                          text_color=COR_ACENTO, width=w, anchor="w").pack(
                 side="left", padx=4, pady=6)
 
-        # Canvas + scrollbar
         canvas_frame = ctk.CTkFrame(frame, fg_color="transparent")
         canvas_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(4, 4))
         canvas_frame.grid_rowconfigure(0, weight=1)
         canvas_frame.grid_columnconfigure(0, weight=1)
 
-        self._canvas = tk.Canvas(canvas_frame, bg=COR_CARD,
-                                 highlightthickness=0)
+        self._canvas = tk.Canvas(canvas_frame, bg=COR_CARD, highlightthickness=0)
         self._canvas.grid(row=0, column=0, sticky="nsew")
 
-        sb = tk.Scrollbar(canvas_frame, orient="vertical",
-                          command=self._canvas.yview)
+        sb = tk.Scrollbar(canvas_frame, orient="vertical", command=self._canvas.yview)
         sb.grid(row=0, column=1, sticky="ns")
         self._canvas.configure(yscrollcommand=sb.set)
 
-        # Bind scroll do mouse
         self._canvas.bind("<MouseWheel>",
-                          lambda e: self._canvas.yview_scroll(
-                              int(-1*(e.delta/120)), "units"))
-        self._canvas.bind("<Button-4>",
-                          lambda e: self._canvas.yview_scroll(-1, "units"))
-        self._canvas.bind("<Button-5>",
-                          lambda e: self._canvas.yview_scroll(1, "units"))
+                          lambda e: self._canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        self._canvas.bind("<Button-4>", lambda e: self._canvas.yview_scroll(-1, "units"))
+        self._canvas.bind("<Button-5>", lambda e: self._canvas.yview_scroll(1, "units"))
 
-        # Paginação
         self._frame_pag = ctk.CTkFrame(frame, fg_color="transparent", height=36)
         self._frame_pag.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
         self._frame_pag.grid_propagate(False)
@@ -208,10 +231,47 @@ class TelaRelatorios(ctk.CTkFrame):
         card.grid(row=0, column=col, padx=4, sticky="ew")
         ctk.CTkLabel(card, text=titulo, font=FONTE_SMALL,
                      text_color=COR_TEXTO_SUB).pack(pady=(12, 2))
-        lbl = ctk.CTkLabel(card, text=valor,
-                           font=("Georgia", 18, "bold"), text_color=cor)
+        lbl = ctk.CTkLabel(card, text=valor, font=("Georgia", 18, "bold"), text_color=cor)
         lbl.pack(pady=(0, 12))
         return lbl
+
+    # ── CANCELAMENTO DE VENDA ─────────────────────────────────────────────────
+
+    def _atualizar_btn_cancelar(self):
+        """Mostra ou esconde o botão de cancelar conforme seleção."""
+        if self._idx_selecionado >= 0:
+            self._btn_cancelar.pack(side="right", padx=(8, 0))
+        else:
+            self._btn_cancelar.pack_forget()
+
+    def _cancelar_venda_selecionada(self):
+        from tkinter import messagebox
+        idx = self._idx_selecionado
+        if idx < 0 or idx >= len(self._vendas_filtradas):
+            return
+        venda = self._vendas_filtradas[idx]
+        resposta = messagebox.askyesno(
+            "⚠️ Cancelar Venda",
+            f"Cancelar a venda #{venda['id']}?\n\n"
+            f"Data: {venda['data_hora'][:16]}\n"
+            f"Total: R$ {venda['total']:.2f}\n"
+            f"Forma: {venda['forma_pagamento']}\n\n"
+            f"Esta ação não pode ser desfeita.\n"
+            f"A venda ficará registrada como CANCELADA.",
+            icon="warning"
+        )
+        if not resposta:
+            return
+        try:
+            _cancelar_venda_db(venda["id"])
+            messagebox.showinfo("Cancelado", f"Venda #{venda['id']} cancelada com sucesso.")
+            # Recarrega o período atual
+            self._idx_selecionado = -1
+            self._btn_cancelar.pack_forget()
+            if self._ini_atual and self._fim_atual:
+                self._carregar_com_thread(self._ini_atual, self._fim_atual)
+        except Exception as e:
+            messagebox.showerror("Erro", f"Não foi possível cancelar a venda:\n{e}")
 
     # ── RENDERIZAÇÃO NO CANVAS ────────────────────────────────────────────────
 
@@ -242,6 +302,7 @@ class TelaRelatorios(ctk.CTkFrame):
         c = self._canvas
         c.delete("all")
         self._idx_selecionado = -1
+        self._btn_cancelar.pack_forget()
 
         if not vendas:
             c.create_text(400, 60, text="Nenhuma venda no período.",
@@ -263,12 +324,8 @@ class TelaRelatorios(ctk.CTkFrame):
         for i, v in enumerate(pagina):
             y      = i * ROW_H
             cor_bg = COR_LINHA_PAR if i % 2 == 0 else COR_CARD
-            # fundo da linha
-            c.create_rectangle(0, y, 2000, y + ROW_H,
-                               fill=cor_bg, outline="")
-            # separador
-            c.create_line(0, y + ROW_H - 1, 2000, y + ROW_H - 1,
-                          fill=COR_BORDA, width=1)
+            c.create_rectangle(0, y, 2000, y + ROW_H, fill=cor_bg, outline="")
+            c.create_line(0, y + ROW_H - 1, 2000, y + ROW_H - 1, fill=COR_BORDA, width=1)
 
             nfce_cor = COR_SUCESSO if v["nfce_status"] == "EMITIDA" else COR_PERIGO
             vals  = [str(v["id"]), v["data_hora"][:16],
@@ -280,13 +337,10 @@ class TelaRelatorios(ctk.CTkFrame):
 
             for val, cor, x in zip(vals, cores, XPOS):
                 c.create_text(x, y + ROW_H // 2, text=val,
-                              font=("Courier New", 12), fill=cor,
-                              anchor="w")
+                              font=("Courier New", 12), fill=cor, anchor="w")
 
-            # Tag de clique por linha
             tag = f"row_{i}"
-            c.create_rectangle(0, y, 2000, y + ROW_H,
-                               fill="", outline="", tags=tag)
+            c.create_rectangle(0, y, 2000, y + ROW_H, fill="", outline="", tags=tag)
             idx_cap = ini + i
             c.tag_bind(tag, "<Button-1>",
                        lambda e, idx=idx_cap, row=i: self._selecionar(idx, row))
@@ -296,6 +350,7 @@ class TelaRelatorios(ctk.CTkFrame):
     def _selecionar(self, idx_global, row_local):
         self._idx_selecionado = idx_global
         self._destacar_canvas(row_local)
+        self._atualizar_btn_cancelar()
 
     def _destacar_canvas(self, row_local):
         c = self._canvas
@@ -305,9 +360,7 @@ class TelaRelatorios(ctk.CTkFrame):
             y      = i * ROW_H
             cor_bg = COR_ACENTO_LIGHT if i == row_local else (
                 COR_LINHA_PAR if i % 2 == 0 else COR_CARD)
-            c.create_rectangle(0, y, 2000, y + ROW_H,
-                               fill=cor_bg, outline="")
-            # redesenha texto por cima
+            c.create_rectangle(0, y, 2000, y + ROW_H, fill=cor_bg, outline="")
             v = pagina[i]
             nfce_cor = COR_SUCESSO if v["nfce_status"] == "EMITIDA" else COR_PERIGO
             vals  = [str(v["id"]), v["data_hora"][:16],
@@ -319,8 +372,7 @@ class TelaRelatorios(ctk.CTkFrame):
             for val, cor, x in zip(vals, cores, XPOS):
                 c.create_text(x, y + ROW_H // 2, text=val,
                               font=("Courier New", 12), fill=cor, anchor="w")
-            c.create_line(0, y + ROW_H - 1, 2000, y + ROW_H - 1,
-                          fill=COR_BORDA, width=1)
+            c.create_line(0, y + ROW_H - 1, 2000, y + ROW_H - 1, fill=COR_BORDA, width=1)
 
     # ── PAGINAÇÃO ─────────────────────────────────────────────────────────────
 
@@ -335,8 +387,7 @@ class TelaRelatorios(ctk.CTkFrame):
         fim = min((self._pagina_atual + 1) * self._POR_PAGINA, total)
         self._lbl_info.configure(text=f"Mostrando {ini}–{fim} de {total} vendas")
         self._lbl_pag.configure(text=f"Pág. {self._pagina_atual + 1}/{npags}")
-        self._btn_ant.configure(
-            state="normal" if self._pagina_atual > 0 else "disabled")
+        self._btn_ant.configure(state="normal" if self._pagina_atual > 0 else "disabled")
         self._btn_prox.configure(
             state="normal" if self._pagina_atual < npags - 1 else "disabled")
 
@@ -384,7 +435,6 @@ class TelaRelatorios(ctk.CTkFrame):
         self._sync_selecao()
 
     def _sync_selecao(self):
-        """Garante que a página exibe a linha selecionada e a destaca."""
         idx = self._idx_selecionado
         pagina_correta = idx // self._POR_PAGINA
         if pagina_correta != self._pagina_atual:
@@ -392,7 +442,7 @@ class TelaRelatorios(ctk.CTkFrame):
             self._desenhar_pagina()
         row_local = idx % self._POR_PAGINA
         self._destacar_canvas(row_local)
-        # scroll para linha visível
+        self._atualizar_btn_cancelar()
         total_linhas = len(self._vendas_filtradas[
             self._pagina_atual * self._POR_PAGINA:
             (self._pagina_atual + 1) * self._POR_PAGINA])
@@ -425,9 +475,11 @@ class TelaRelatorios(ctk.CTkFrame):
     # ── CARREGAMENTO ──────────────────────────────────────────────────────────
 
     def _carregar_com_thread(self, ini, fim):
+        self._ini_atual = ini
+        self._fim_atual = fim
         def carregar():
             try:
-                vendas = listar_vendas(ini, fim)
+                vendas = _listar_vendas_ativas(ini, fim)
                 self._vendas_atuais    = vendas
                 self._vendas_filtradas = list(vendas)
                 self._idx_selecionado  = -1
@@ -524,7 +576,6 @@ class TelaRelatorios(ctk.CTkFrame):
         if not path:
             return
 
-        # Loading overlay
         loading = ctk.CTkToplevel(self)
         loading.title("")
         loading.resizable(False, False)
@@ -592,8 +643,7 @@ class TelaRelatorios(ctk.CTkFrame):
                 story.append(Spacer(1, 0.2*cm))
                 story.append(HRFlowable(width="100%", thickness=2, color=COR_PDF))
 
-                tit = Table([[f"RELATÓRIO DE VENDAS — {periodo}"]],
-                            colWidths=[17*cm])
+                tit = Table([[f"RELATÓRIO DE VENDAS — {periodo}"]], colWidths=[17*cm])
                 tit.setStyle(TableStyle([
                     ("BACKGROUND", (0,0),(-1,-1), COR_PDF),
                     ("TEXTCOLOR",  (0,0),(-1,-1), colors.white),
@@ -622,8 +672,7 @@ class TelaRelatorios(ctk.CTkFrame):
                     for fk, fl, fc in formas_cfg:
                         if fk in forma.upper() or forma.upper() == fk:
                             if fk not in grupos:
-                                grupos[fk] = {"label": fl, "cor": fc,
-                                              "vendas": [], "total": 0}
+                                grupos[fk] = {"label": fl, "cor": fc, "vendas": [], "total": 0}
                             grupos[fk]["vendas"].append(v)
                             grupos[fk]["total"] += v["total"]
                             matched = True
@@ -738,7 +787,6 @@ class TelaRelatorios(ctk.CTkFrame):
             except Exception as e:
                 err = str(e)
                 self.after(0, loading.destroy)
-                self.after(0, lambda: messagebox.showerror(
-                    "Erro", f"Erro ao gerar PDF:\n{err}"))
+                self.after(0, lambda: messagebox.showerror("Erro", f"Erro ao gerar PDF:\n{err}"))
 
         threading.Thread(target=gerar, daemon=True).start()
